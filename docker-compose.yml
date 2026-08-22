@@ -7,8 +7,11 @@ services:
     environment:
       GIST_BIND: 0.0.0.0:8787
       GIST_DATA: /data
-      GIST_PUBLIC_URL: https://gist.neitomic.xyz
+      GIST_PUBLIC_URL: https://gist.example.com
     volumes:
-      - /var/lib/gist:/data
+      - gist-data:/data
     ports:
       - "127.0.0.1:8787:8787"
+
+volumes:
+  gist-data:

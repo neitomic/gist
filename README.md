@@ -108,19 +108,6 @@ Markdown is converted to HTML with GitHub-flavored extras (tables, task lists, f
 | `GIST_MAX_BYTES` | `8388608` (8 MiB) | Upload cap |
 | `GIST_PUBLIC_URL` | inferred from `Host` | Public origin, e.g. `https://gist.example.com` |
 
-## Production (gist.neitomic.xyz)
-
-Deployed on `hypc-hcm2` at `/opt/gist` (Docker) behind the host nginx. Origin TLS is a self-signed cert for Cloudflare.
-
-Cloudflare **SSL/TLS must be Full**, not Full (strict). Strict rejects the origin cert and returns **526**.
-
-```bash
-# rebuild / restart
-ssh root@hypc-hcm2.guard.neitomic.xyz 'cd /opt/gist && docker compose up -d --build'
-```
-
-Token lives in `/opt/gist/.env` (mode `0600`). Documents in `/var/lib/gist`.
-
 ## Run on a server
 
 Bind on localhost and terminate TLS in Caddy or nginx. Do not expose the process on the public internet without HTTPS.
