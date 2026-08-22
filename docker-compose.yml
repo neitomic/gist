@@ -1,0 +1,14 @@
+services:
+  gist:
+    build: .
+    image: gist:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      GIST_BIND: 0.0.0.0:8787
+      GIST_DATA: /data
+      GIST_PUBLIC_URL: https://gist.neitomic.xyz
+    volumes:
+      - /var/lib/gist:/data
+    ports:
+      - "127.0.0.1:8787:8787"

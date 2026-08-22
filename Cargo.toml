@@ -1,0 +1,33 @@
+[package]
+name = "gist"
+version = "0.1.0"
+edition = "2021"
+description = "A small token-gated drop box for agent documents"
+license = "MIT"
+publish = false
+
+[dependencies]
+ammonia = "4"
+axum = { version = "0.8", features = ["form", "macros", "multipart"] }
+axum-extra = { version = "0.10", features = ["cookie"] }
+base64 = "0.22"
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+mime_guess = "2"
+nanoid = "0.4"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+syntect = "5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+subtle = "2"
+time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "rt-multi-thread", "signal"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["limit", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ureq = "2"
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

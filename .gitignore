@@ -1,0 +1,7 @@
+/target
+/data
+.env
+*.swp
+.DS_Store
+deploy/certs
+.grok/
