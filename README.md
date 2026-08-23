@@ -127,7 +127,7 @@ gist.example.com {
 }
 ```
 
-Docker:
+Docker (this machine):
 
 ```bash
 docker build -t gist .
@@ -137,6 +137,17 @@ docker run --rm -p 127.0.0.1:8787:8787 \
   -v gist-data:/data \
   gist
 ```
+
+linux/amd64 and linux/arm64 (buildx). A multi-arch image has to be pushed to a registry; `--load` only works for one platform:
+
+```bash
+docker buildx create --use --name gist
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/neitomic/gist:latest --push .
+# or without pushing: docker buildx bake
+```
+
+Pushes to `main` publish `ghcr.io/neitomic/gist` for both architectures.
 
 Inside the container the process listens on all interfaces; keep the published port on `127.0.0.1` or behind a proxy.
 
