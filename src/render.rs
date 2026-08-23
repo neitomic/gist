@@ -147,7 +147,7 @@ pub fn render_body(kind: Kind, body: &[u8]) -> View {
         Kind::Markdown => View::Html(render_markdown(&String::from_utf8_lossy(body))),
         Kind::Html => {
             let text = String::from_utf8_lossy(body);
-            View::Html(Rendered::simple(sanitize(&text)))
+            View::Html(Rendered::simple(wrap_tables(sanitize(&text))))
         }
         Kind::Text => {
             let text = esc(&String::from_utf8_lossy(body));
@@ -178,7 +178,7 @@ fn render_markdown(text: &str) -> Rendered {
     let mut html_out = String::new();
     html::push_html(&mut html_out, events.into_iter());
     Rendered {
-        html: sanitize(&html_out),
+        html: wrap_tables(sanitize(&html_out)),
         toc,
         has_mermaid,
         has_code,
@@ -344,6 +344,14 @@ fn sanitize(html: &str) -> String {
         .to_string()
 }
 
+fn wrap_tables(html: String) -> String {
+    if !html.contains("<table") {
+        return html;
+    }
+    html.replace("<table", "<div class=\"table-wrap\"><table")
+        .replace("</table>", "</table></div>")
+}
+
 pub fn esc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -419,6 +427,17 @@ graph TD
             out.toc.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
             vec!["code", "diagram"]
         );
+    }
+
+    #[test]
+    fn tables_are_wrapped_for_mobile_scroll() {
+        let md = b"| a | b |\n| --- | --- |\n| 1 | 2 |\n";
+        let View::Html(out) = render_body(Kind::Markdown, md) else {
+            panic!("expected html");
+        };
+        assert!(out.html.contains("class=\"table-wrap\""));
+        assert!(out.html.contains("<table"));
+        assert!(out.html.contains("</table></div>") || out.html.contains("</table>\n</div>"));
     }
 
     #[test]

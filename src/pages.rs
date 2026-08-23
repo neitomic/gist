@@ -27,14 +27,14 @@ const CSS: &str = r#"
   }
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
+html, body { margin: 0; padding: 0; overflow-x: clip; }
 body {
   font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--ink);
 }
 a { color: var(--accent); }
-header.app, footer.app, main { width: min(840px, calc(100% - 32px)); margin: 0 auto; }
+header.app, footer.app, main { width: min(840px, calc(100% - 32px)); margin: 0 auto; min-width: 0; }
 body.doc-page header.app, body.doc-page footer.app, body.doc-page main {
   width: min(1180px, calc(100% - 32px));
 }
@@ -118,16 +118,19 @@ article.doc h1 { font-size: 2rem; margin: 1.4em 0 0.5em; }
 article.doc h2 { font-size: 1.45rem; margin: 1.5em 0 0.45em; padding-bottom: 0.2em; border-bottom: 1px solid var(--line); }
 article.doc h3 { font-size: 1.18rem; margin: 1.3em 0 0.4em; }
 article.doc h4 { font-size: 1.05rem; margin: 1.2em 0 0.35em; }
-article.doc p { margin: 0.85em 0; }
-article.doc a { text-underline-offset: 2px; }
+article.doc p { margin: 0.85em 0; overflow-wrap: anywhere; word-break: break-word; }
+article.doc li, article.doc dd { overflow-wrap: anywhere; word-break: break-word; }
+article.doc a { text-underline-offset: 2px; overflow-wrap: anywhere; word-break: break-word; }
 article.doc hr { border: 0; border-top: 1px solid var(--line); margin: 2em 0; }
 article.doc pre, article.doc code, pre.plain, .code-meta { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88rem; }
 article.doc :not(pre) > code {
   background: var(--chip); border-radius: 5px; padding: 0.12em 0.38em; font-size: 0.86em;
+  overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap;
 }
 article.doc pre, pre.plain {
   background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
-  padding: 12px 14px; overflow: auto;
+  padding: 12px 14px; overflow: auto; -webkit-overflow-scrolling: touch;
+  max-width: 100%;
 }
 article.doc .code-block {
   margin: 1.1em 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
@@ -148,17 +151,30 @@ article.doc .copy-btn {
 }
 article.doc .mermaid-wrap {
   margin: 1.1em 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px;
-  background: var(--bg); overflow: auto; text-align: center;
+  background: var(--bg); overflow: auto; -webkit-overflow-scrolling: touch; text-align: center;
+  max-width: 100%;
 }
+article.doc .mermaid-wrap svg { max-width: 100%; height: auto; }
 article.doc pre.mermaid { background: transparent; border: 0; text-align: left; }
-article.doc img, article.doc video { max-width: 100%; border-radius: 8px; }
-article.doc table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.95em; font-family: ui-sans-serif, system-ui, sans-serif; }
-article.doc th, article.doc td { border: 1px solid var(--line); padding: 8px 10px; }
+article.doc img, article.doc video, article.doc svg { max-width: 100%; height: auto; border-radius: 8px; }
+.table-wrap {
+  width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain; margin: 1em 0;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--paper);
+}
+article.doc table {
+  border-collapse: collapse; width: max-content; min-width: 100%; margin: 0;
+  font-size: 0.88rem; font-family: ui-sans-serif, system-ui, sans-serif;
+}
+article.doc th, article.doc td {
+  border: 1px solid var(--line); padding: 8px 10px; vertical-align: top;
+  overflow-wrap: anywhere; word-break: break-word; max-width: 16rem;
+}
 article.doc th { background: var(--chip); text-align: left; }
 article.doc tr:nth-child(even) td { background: color-mix(in srgb, var(--chip) 55%, transparent); }
 article.doc blockquote {
-  margin: 1em 0; padding: 0.2em 0 0.2em 1em; border-left: 3px solid var(--line);
-  color: var(--muted);
+  margin: 1em 0; padding: 0.2em 0.8em 0.2em 1em; border-left: 3px solid var(--line);
+  color: var(--muted); min-width: 0; overflow-wrap: anywhere; word-break: break-word;
 }
 article.doc blockquote.markdown-alert-note,
 article.doc blockquote.markdown-alert-tip,
@@ -232,6 +248,27 @@ label.theme-pick { display: flex; align-items: center; gap: 8px; margin: 0; colo
 label.theme-pick select {
   width: auto; padding: 6px 8px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit;
+}
+@media (max-width: 720px) {
+  header.app, footer.app, main,
+  body.doc-page header.app, body.doc-page footer.app, body.doc-page main {
+    width: calc(100% - 16px);
+  }
+  header.app { padding: 16px 0 12px; gap: 10px; flex-wrap: wrap; }
+  header.app nav { gap: 12px; }
+  article.doc { padding: 4px 14px 28px; font-size: 1rem; border-radius: 10px; }
+  article.doc h1 { font-size: 1.45rem; }
+  article.doc h2 { font-size: 1.2rem; }
+  article.doc h3 { font-size: 1.08rem; }
+  article.doc th, article.doc td { max-width: 11rem; padding: 6px 8px; font-size: 0.82rem; }
+  .doc-head h2 { font-size: 1.28rem; overflow-wrap: anywhere; }
+  .meta-line { overflow-wrap: anywhere; }
+  .toolbar form { min-width: 0; width: 100%; }
+  ul.docs a.row-link { grid-template-columns: 44px 1fr; }
+  .when { grid-column: 2; white-space: normal; }
+  .pager { flex-wrap: wrap; }
+  label.theme-pick { width: 100%; }
+  label.theme-pick select { flex: 1; min-width: 0; }
 }
 "#;
 
