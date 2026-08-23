@@ -31,7 +31,7 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
     CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
     CARGO_TERM_COLOR=always
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry,id=gist-cargo-registry \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=gist-cargo-registry-${TARGETARCH} \
     --mount=type=cache,target=/app/target,id=gist-cargo-target-${TARGETARCH} \
     set -eux; \
     case "$TARGETPLATFORM" in \
