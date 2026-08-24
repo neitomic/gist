@@ -94,14 +94,19 @@
     s.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
     s.onload = function () {
       if (!window.mermaid) return;
-      var dark =
-        document.documentElement.getAttribute("data-code-theme") === "ocean-dark" ||
-        document.documentElement.getAttribute("data-code-theme") === "mocha" ||
-        document.documentElement.getAttribute("data-code-theme") === "eighties" ||
-        document.documentElement.getAttribute("data-code-theme") === "solarized-dark" ||
-        (document.documentElement.getAttribute("data-code-theme") === "auto" &&
+      var codeTheme = document.documentElement.getAttribute("data-code-theme");
+      var pageTheme = document.documentElement.getAttribute("data-theme");
+      var pageDark =
+        pageTheme === "dark" ||
+        (pageTheme !== "light" &&
           window.matchMedia &&
           window.matchMedia("(prefers-color-scheme: dark)").matches);
+      var dark =
+        codeTheme === "ocean-dark" ||
+        codeTheme === "mocha" ||
+        codeTheme === "eighties" ||
+        codeTheme === "solarized-dark" ||
+        (codeTheme === "auto" && pageDark);
       window.mermaid.initialize({
         startOnLoad: false,
         securityLevel: "strict",

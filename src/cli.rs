@@ -36,6 +36,10 @@ pub enum Command {
     List,
     /// Print export lines for GIST_URL and GIST_TOKEN
     Env,
+    /// Install a macOS launchd service and point this CLI at it
+    Install,
+    /// Stop and remove the macOS launchd service
+    Uninstall,
 }
 
 pub fn run(command: Command) -> Result<(), String> {
@@ -49,6 +53,8 @@ pub fn run(command: Command) -> Result<(), String> {
         } => put(file, project, slug, title),
         Command::List => list(),
         Command::Env => print_env(),
+        Command::Install => crate::service::install(),
+        Command::Uninstall => crate::service::uninstall(),
     }
 }
 
@@ -56,7 +62,7 @@ fn require_config() -> Result<Config, String> {
     let cfg = config::load();
     if !cfg.is_ready() {
         return Err(format!(
-            "missing credentials. set GIST_URL and GIST_TOKEN, or start the server once so it writes {}",
+            "missing credentials. set GIST_URL and GIST_TOKEN, run `gist install` on macOS, or start the server once so it writes {}",
             config::path().display()
         ));
     }
@@ -82,7 +88,7 @@ fn put(
         format!("invalid slug '{slug}' (use letters, digits, '.', '_' or '-', max 128)")
     })?;
     let ct = guess_content_type(&slug, None);
-    let mut req = ureq::put(&format!("{}/d/{project}/{slug}", cfg.url))
+    let mut req = ureq::put(&format!("{}/d/{project}/{slug}", cfg.cli_url()))
         .set("Authorization", &format!("Bearer {}", cfg.token))
         .set("Content-Type", &ct);
     if let Some(title) = title.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -105,7 +111,7 @@ fn put(
 
 fn list() -> Result<(), String> {
     let cfg = require_config()?;
-    let resp = ureq::get(&format!("{}/api/docs", cfg.url))
+    let resp = ureq::get(&format!("{}/api/docs", cfg.cli_url()))
         .set("Authorization", &format!("Bearer {}", cfg.token))
         .call()
         .map_err(|e| format!("list failed: {e}"))?;
@@ -119,9 +125,16 @@ fn list() -> Result<(), String> {
 
 fn print_env() -> Result<(), String> {
     let cfg = require_config()?;
-    println!("export GIST_URL={}", shell_single(&cfg.url));
+    println!("export GIST_URL={}", shell_single(cfg.env_url()));
     println!("export GIST_TOKEN={}", shell_single(&cfg.token));
     let _ = writeln!(std::io::stderr(), "# from {}", config::path().display());
+    if cfg.cli_url() != cfg.env_url() {
+        let _ = writeln!(
+            std::io::stderr(),
+            "# this machine's gist put/list use {}",
+            cfg.cli_url()
+        );
+    }
     Ok(())
 }
 

@@ -89,7 +89,8 @@ pub fn theme_css() -> &'static str {
                 &raw,
             ));
         }
-        // Auto: GitHub in light, Ocean Dark in dark.
+        // Auto: GitHub in light, Ocean Dark when the page is dark
+        // (forced via data-theme, or system preference when theme is auto).
         if let Some(light) = set.themes.get("InspiredGitHub") {
             if let Ok(raw) = css_for_theme_with_class_style(light, CLASS_STYLE) {
                 css.push_str(&scope_css("html[data-code-theme=\"auto\"]", &raw));
@@ -97,8 +98,15 @@ pub fn theme_css() -> &'static str {
         }
         if let Some(dark) = set.themes.get("base16-ocean.dark") {
             if let Ok(raw) = css_for_theme_with_class_style(dark, CLASS_STYLE) {
+                css.push_str(&scope_css(
+                    "html[data-theme=\"dark\"][data-code-theme=\"auto\"]",
+                    &raw,
+                ));
                 css.push_str("@media (prefers-color-scheme: dark) {\n");
-                css.push_str(&scope_css("html[data-code-theme=\"auto\"]", &raw));
+                css.push_str(&scope_css(
+                    "html[data-theme=\"auto\"][data-code-theme=\"auto\"]",
+                    &raw,
+                ));
                 css.push_str("}\n");
             }
         }

@@ -28,7 +28,7 @@ gist list
 gist env          # print export GIST_URL / GIST_TOKEN for a remote agent
 ```
 
-Credential order: `GIST_URL` + `GIST_TOKEN` in the environment, then `~/.config/gist/config`.
+Credential order: `GIST_URL` + `GIST_TOKEN` in the environment, then `~/.config/gist/config`. If the file has `local_url`, this machine's `gist put` / `gist list` use that; `gist env` prints `url` for a remote agent.
 
 Public contract (no token in the response):
 
@@ -42,6 +42,23 @@ Install the binary somewhere on `PATH`:
 ```bash
 cargo install --path .
 ```
+
+### macOS service
+
+Keep a local inbox running in the background (launchd user agent, login + keep-alive):
+
+```bash
+cargo install --path .
+gist install
+```
+
+That copies the binary into `~/Library/Application Support/gist/bin/gist`, loads `xyz.neitomic.gist`, and writes `local_url=http://127.0.0.1:8787` into `~/.config/gist/config`. `gist put` and `gist list` on this machine use that loopback URL. A remote `url=` already in the file is left alone; `gist env` still prints it for agents on other machines.
+
+```bash
+gist uninstall    # stop launchd, keep documents
+```
+
+Data: `~/Library/Application Support/gist`. Logs: `~/Library/Logs/gist.log`. Bind: `127.0.0.1:8787` (`GIST_BIND` / `GIST_DATA` / `GIST_TOKEN` work as usual).
 
 ## Agent API
 
@@ -96,7 +113,7 @@ curl -fsS -X POST "$GIST_URL/api/docs" \
 
 Slugs are `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. No paths, no `..`.
 
-Markdown is converted to HTML with GitHub-flavored extras (tables, task lists, footnotes, alerts), a table of contents, and server-side syntax highlighting (theme picker on the doc page). Fenced `mermaid` blocks render in the browser. Uploaded HTML is passed through [ammonia](https://docs.rs/ammonia) so scripts and event handlers from the document do not run. Raw HTML/JS/SVG is served as `text/plain`.
+Markdown is converted to HTML with GitHub-flavored extras (tables, task lists, footnotes, alerts), a table of contents, and server-side syntax highlighting (theme picker on the doc page). The header has an appearance control (auto / light / dark) that is stored in the browser. Fenced `mermaid` blocks render in the browser. Uploaded HTML is passed through [ammonia](https://docs.rs/ammonia) so scripts and event handlers from the document do not run. Raw HTML/JS/SVG is served as `text/plain`.
 
 ## Environment
 
@@ -158,6 +175,6 @@ Inside the container the process listens on all interfaces; keep the published p
 - Body size is capped.
 - Slugs cannot escape the data directory.
 - HTML is sanitized. User documents cannot run script.
-- The document viewer loads a small first-party script (`/static/doc.js`) for the code-theme picker, copy buttons, and TOC highlighting. Mermaid diagrams pull `mermaid.min.js` from jsDelivr. CSP allows only those script sources.
+- Every page loads `/static/theme.js` for the appearance picker. The document viewer also loads `/static/doc.js` for the code-theme picker, copy buttons, and TOC highlighting. Mermaid diagrams pull `mermaid.min.js` from jsDelivr. CSP allows only those script sources.
 
 This is a personal inbox, not a multi-user product. Treat the token like a password.

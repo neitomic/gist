@@ -4,6 +4,7 @@ mod config;
 mod highlight;
 mod pages;
 mod render;
+mod service;
 mod store;
 
 use auth::{extract_from_headers, Authed, Token};
@@ -32,7 +33,6 @@ use tokio::net::TcpListener;
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 use tracing::{info, warn};
 
-const DEFAULT_BIND: &str = "127.0.0.1:8787";
 const DEFAULT_MAX_BYTES: usize = 8 * 1024 * 1024;
 const COOKIE_MAX_AGE: Duration = Duration::days(400);
 
@@ -73,7 +73,7 @@ async fn serve() {
         .init();
 
     let bind: SocketAddr = std::env::var("GIST_BIND")
-        .unwrap_or_else(|_| DEFAULT_BIND.into())
+        .unwrap_or_else(|_| config::DEFAULT_BIND.into())
         .parse()
         .expect("GIST_BIND must be host:port");
 
@@ -87,14 +87,15 @@ async fn serve() {
 
     let token = load_or_create_token(&data);
     let public_base = std::env::var("GIST_PUBLIC_URL").ok();
-    let agent_url = config::client_url(&bind.to_string(), public_base.as_deref());
-    match config::save(&config::Config {
-        url: agent_url.clone(),
-        token: token.clone(),
-    }) {
+    let existing = config::load_file(&config::path()).unwrap_or_default();
+    let agent_cfg =
+        config::apply_listen(existing, &bind.to_string(), public_base.as_deref(), &token);
+    match config::save(&agent_cfg) {
         Ok(path) => info!("agent credentials written to {}", path.display()),
         Err(e) => warn!("could not write {}: {e}", config::path().display()),
     }
+    let agent_url = agent_cfg.env_url().to_string();
+    let cli_url = agent_cfg.cli_url().to_string();
 
     let app = App {
         store: Store::new(data.clone()),
@@ -109,9 +110,12 @@ async fn serve() {
     info!("data dir {}", data.display());
     info!("agents: gist put FILE   or   GET {agent_url}/agent");
     eprintln!();
-    eprintln!("  browse:  {agent_url}");
+    eprintln!("  browse:  {cli_url}");
     eprintln!("  drop:    gist put notes.md");
     eprintln!("  env:     gist env");
+    if cli_url != agent_url {
+        eprintln!("  remote:  {agent_url}");
+    }
     eprintln!();
 
     let listener = TcpListener::bind(bind).await.expect("bind");
@@ -132,6 +136,7 @@ fn router(app: App) -> Router {
         .route("/logout", get(logout))
         .route("/new", get(new_get))
         .route("/static/doc.js", get(doc_js))
+        .route("/static/theme.js", get(theme_js))
         .route("/d", post(create_multipart))
         .route("/d/{slug}", get(view_doc).put(put_doc))
         .route("/d/{slug}/raw", get(raw_doc))
@@ -236,7 +241,7 @@ async fn health() -> impl IntoResponse {
     (StatusCode::OK, "ok\n")
 }
 
-async fn doc_js() -> impl IntoResponse {
+fn js_file(body: &'static str) -> impl IntoResponse {
     (
         [
             (
@@ -248,8 +253,16 @@ async fn doc_js() -> impl IntoResponse {
                 HeaderValue::from_static("public, max-age=86400"),
             ),
         ],
-        include_str!("../static/doc.js"),
+        body,
     )
+}
+
+async fn doc_js() -> impl IntoResponse {
+    js_file(include_str!("../static/doc.js"))
+}
+
+async fn theme_js() -> impl IntoResponse {
+    js_file(include_str!("../static/theme.js"))
 }
 
 async fn agent_card(State(app): State<App>, headers: HeaderMap) -> impl IntoResponse {
@@ -1020,6 +1033,27 @@ mod tests {
         assert!(html.contains("method=\"post\""));
         assert!(html.contains("name=\"token\""));
         assert!(html.contains("Sign in"));
+        assert!(html.contains("/static/theme.js"));
+        assert!(html.contains("id=\"color-scheme\""));
+    }
+
+    #[tokio::test]
+    async fn theme_js_is_public() {
+        let dir = std::env::temp_dir().join(format!("gist-test-{}", nanoid::nanoid!(6)));
+        let app = test_app(dir);
+        let res = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/static/theme.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let js = body_string(res).await;
+        assert!(js.contains("gist-theme"));
+        assert!(js.contains("data-theme"));
     }
 
     #[tokio::test]

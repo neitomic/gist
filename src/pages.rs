@@ -14,9 +14,21 @@ const CSS: &str = r#"
   --paper: #fffdf8;
   --accent: #8a3b12;
   --chip: #ece4d6;
+  color-scheme: light dark;
+}
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #141210;
+  --ink: #f3ece3;
+  --muted: #a3988c;
+  --line: #3a342d;
+  --paper: #1c1916;
+  --accent: #e08a55;
+  --chip: #2a2520;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  html[data-theme="auto"] {
     --bg: #141210;
     --ink: #f3ece3;
     --muted: #a3988c;
@@ -39,12 +51,20 @@ body.doc-page header.app, body.doc-page footer.app, body.doc-page main {
   width: min(1180px, calc(100% - 32px));
 }
 header.app {
-  display: flex; align-items: baseline; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
   padding: 28px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 24px;
+  gap: 16px;
 }
 header.app h1 { font-size: 1.05rem; font-weight: 650; letter-spacing: 0.02em; margin: 0; }
 header.app h1 a { color: inherit; text-decoration: none; }
+header.app .header-end { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 header.app nav { display: flex; gap: 16px; color: var(--muted); font-size: 0.9rem; }
+label.scheme-pick { margin: 0; }
+label.scheme-pick select {
+  width: auto; padding: 4px 8px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit;
+  font-size: 0.85rem;
+}
 .muted { color: var(--muted); }
 .error { color: var(--accent); margin: 0 0 12px; }
 .login-wrap { max-width: 420px; margin: 12px auto 0; }
@@ -256,6 +276,7 @@ label.theme-pick select {
   }
   header.app { padding: 16px 0 12px; gap: 10px; flex-wrap: wrap; }
   header.app nav { gap: 12px; }
+  header.app .header-end { gap: 12px; }
   article.doc { padding: 4px 14px 28px; font-size: 1rem; border-radius: 10px; }
   article.doc h1 { font-size: 1.45rem; }
   article.doc h2 { font-size: 1.2rem; }
@@ -300,19 +321,29 @@ fn shell_ex(
     };
     format!(
         r#"<!doctype html>
-<html lang="en" data-code-theme="auto">
+<html lang="en" data-theme="auto" data-code-theme="auto">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>{title}</title>
 <style>{CSS}{extra_css}</style>
+<script src="/static/theme.js"></script>
 {extra_head}
 </head>
 <body{body_attr}>
 <header class="app">
   <h1><a href="/">gist</a></h1>
-  {nav}
+  <div class="header-end">
+    <label class="scheme-pick">
+      <select id="color-scheme" aria-label="Color scheme">
+        <option value="auto">Auto</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+    {nav}
+  </div>
 </header>
 <main>
 {body}
@@ -756,6 +787,20 @@ pub fn not_found() -> String {
         true,
         "<h2>Not found</h2><p class=\"muted\">No document with that slug. <a href=\"/\">Back to inbox</a>.</p>",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pages_include_appearance_switch() {
+        let html = login(None, None);
+        assert!(html.contains("/static/theme.js"));
+        assert!(html.contains("id=\"color-scheme\""));
+        assert!(html.contains("html[data-theme=\"dark\"]"));
+        assert!(html.contains("html[data-theme=\"auto\"]"));
+    }
 }
 
 fn human_size(n: u64) -> String {
