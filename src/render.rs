@@ -147,7 +147,13 @@ pub fn render_body(kind: Kind, body: &[u8]) -> View {
         Kind::Markdown => View::Html(render_markdown(&String::from_utf8_lossy(body))),
         Kind::Html => {
             let text = String::from_utf8_lossy(body);
-            View::Html(Rendered::simple(wrap_tables(sanitize(&text))))
+            let html = wrap_tables(sanitize(&text));
+            let (html, toc) = extract_html_toc(html);
+            View::Html(Rendered {
+                html,
+                toc,
+                ..Rendered::default()
+            })
         }
         Kind::Text => {
             let text = esc(&String::from_utf8_lossy(body));
@@ -344,6 +350,173 @@ fn sanitize(html: &str) -> String {
         .to_string()
 }
 
+fn extract_html_toc(html: String) -> (String, Vec<TocItem>) {
+    let mut toc = Vec::new();
+    let mut used_ids: HashMap<String, u32> = HashMap::new();
+    let mut out = String::with_capacity(html.len() + 64);
+    let lower = html.to_ascii_lowercase();
+    let mut i = 0;
+    while let Some((start, level)) = find_heading_open(&lower, i) {
+        out.push_str(&html[i..start]);
+        let Some(open_end) = html[start..].find('>').map(|n| start + n) else {
+            out.push_str(&html[start..]);
+            return (out, toc);
+        };
+        let close_pat = format!("</h{level}");
+        let search_from = open_end + 1;
+        let Some(close_rel) = lower[search_from..].find(&close_pat) else {
+            out.push_str(&html[start..]);
+            return (out, toc);
+        };
+        let close_start = search_from + close_rel;
+        let Some(close_end_rel) = html[close_start..].find('>') else {
+            out.push_str(&html[start..]);
+            return (out, toc);
+        };
+        let close_end = close_start + close_end_rel + 1;
+        let open_tag = &html[start..=open_end];
+        let inner = &html[open_end + 1..close_start];
+        let text = decode_entities(&strip_tags(inner));
+        let text = text.trim();
+        let mut open_out = open_tag.to_string();
+        if !text.is_empty() {
+            let id_str = if let Some(existing) = attr_id(open_tag) {
+                let n = used_ids.entry(existing.clone()).or_insert(0);
+                *n += 1;
+                existing
+            } else {
+                let id_str = unique_id(&mut used_ids, slugify(text));
+                open_out = format!(
+                    "{} id=\"{}\">",
+                    open_tag[..open_tag.len() - 1].trim_end(),
+                    esc(&id_str)
+                );
+                id_str
+            };
+            toc.push(TocItem {
+                level,
+                id: id_str,
+                text: text.to_string(),
+            });
+        }
+        out.push_str(&open_out);
+        out.push_str(inner);
+        out.push_str(&html[close_start..close_end]);
+        i = close_end;
+    }
+    if i < html.len() {
+        out.push_str(&html[i..]);
+    }
+    (out, toc)
+}
+
+fn find_heading_open(lower: &str, from: usize) -> Option<(usize, u8)> {
+    let bytes = lower.as_bytes();
+    let mut i = from;
+    while i + 3 < bytes.len() {
+        if bytes[i] == b'<' && bytes[i + 1] == b'h' {
+            let n = bytes[i + 2];
+            if matches!(n, b'1' | b'2' | b'3' | b'4') {
+                let next = bytes[i + 3];
+                if next == b'>' || next.is_ascii_whitespace() {
+                    return Some((i, n - b'0'));
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn attr_id(open_tag: &str) -> Option<String> {
+    let lower = open_tag.to_ascii_lowercase();
+    let i = lower.find("id=")?;
+    if i > 0 {
+        let before = lower.as_bytes()[i - 1];
+        if before.is_ascii_alphanumeric() || before == b'-' || before == b'_' {
+            return None;
+        }
+    }
+    let rest = open_tag[i + 3..].trim_start();
+    let id = match rest.as_bytes().first() {
+        Some(q @ (b'"' | b'\'')) => {
+            let q = *q as char;
+            let rest = &rest[1..];
+            let end = rest.find(q)?;
+            rest[..end].trim()
+        }
+        Some(_) => {
+            let end = rest
+                .find(|c: char| c.is_ascii_whitespace() || c == '>')
+                .unwrap_or(rest.len());
+            rest[..end].trim()
+        }
+        None => return None,
+    };
+    if id.is_empty() {
+        None
+    } else {
+        Some(id.to_string())
+    }
+}
+
+fn strip_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn decode_entities(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let decoded = if rest.starts_with("&amp;") {
+            rest = &rest[5..];
+            Some('&')
+        } else if rest.starts_with("&lt;") {
+            rest = &rest[4..];
+            Some('<')
+        } else if rest.starts_with("&gt;") {
+            rest = &rest[4..];
+            Some('>')
+        } else if rest.starts_with("&quot;") {
+            rest = &rest[6..];
+            Some('"')
+        } else if rest.starts_with("&#39;") || rest.starts_with("&apos;") {
+            rest = if rest.starts_with("&#39;") {
+                &rest[5..]
+            } else {
+                &rest[6..]
+            };
+            Some('\'')
+        } else if rest.starts_with("&nbsp;") {
+            rest = &rest[6..];
+            Some(' ')
+        } else {
+            None
+        };
+        match decoded {
+            Some(c) => out.push(c),
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 fn wrap_tables(html: String) -> String {
     if !html.contains("<table") {
         return html;
@@ -395,8 +568,41 @@ mod tests {
         else {
             panic!("expected html");
         };
-        assert!(html.html.contains("<h1>Ok</h1>"));
+        assert!(html.html.contains("<h1"));
+        assert!(html.html.contains("Ok</h1>"));
         assert!(!html.html.contains("onerror"));
+    }
+
+    #[test]
+    fn html_headings_become_sidebar_toc() {
+        let src = r##"
+<nav class="toc"><ol><li><a href="#s1">Problem</a></li></ol></nav>
+<h1>WFO Cutover</h1>
+<section id="s1"><h2>Problem</h2></section>
+<h2 id="custom">Vault topology &amp; naming</h2>
+<h3>Details</h3>
+"##;
+        let View::Html(out) = render_body(Kind::Html, src.as_bytes()) else {
+            panic!("expected html");
+        };
+        assert!(
+            out.html.contains("id=\"problem\"") || out.html.contains("id=\"Problem\""),
+            "expected generated heading id: {}",
+            out.html
+        );
+        let texts: Vec<&str> = out.toc.iter().map(|t| t.text.as_str()).collect();
+        assert!(texts.contains(&"WFO Cutover"), "{texts:?}");
+        assert!(texts.contains(&"Problem"), "{texts:?}");
+        assert!(texts.contains(&"Vault topology & naming"), "{texts:?}");
+        assert!(texts.contains(&"Details"), "{texts:?}");
+        assert_eq!(
+            out.toc
+                .iter()
+                .find(|t| t.text == "Vault topology & naming")
+                .map(|t| t.id.as_str()),
+            Some("custom")
+        );
+        assert!(out.toc.iter().any(|t| t.level == 2 && t.id == "problem"));
     }
 
     #[test]

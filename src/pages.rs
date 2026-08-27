@@ -219,25 +219,27 @@ article.doc dt { font-weight: 650; margin-top: 0.8em; }
 article.doc dd { margin-left: 1.2em; color: var(--muted); }
 article.doc .footnotes { margin-top: 2.2em; padding-top: 0.8em; border-top: 1px solid var(--line); font-size: 0.92em; color: var(--muted); }
 .doc-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-items: start; }
-.toc {
+.doc-layout > nav.toc {
   background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
   padding: 10px 14px 14px; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.86rem;
 }
-.toc summary { cursor: pointer; color: var(--muted); font-weight: 650; letter-spacing: 0.02em; }
-.toc ol { list-style: none; padding: 8px 0 0; margin: 0; }
-.toc li { margin: 0; }
-.toc a {
+.doc-layout > nav.toc summary { cursor: pointer; color: var(--muted); font-weight: 650; letter-spacing: 0.02em; }
+.doc-layout > nav.toc ol { list-style: none; padding: 8px 0 0; margin: 0; }
+.doc-layout > nav.toc li { margin: 0; }
+.doc-layout > nav.toc a {
   display: block; color: var(--muted); text-decoration: none; padding: 4px 0;
   border-left: 2px solid transparent; padding-left: 8px;
 }
-.toc a:hover, .toc a.active { color: var(--ink); border-left-color: var(--accent); }
-.toc li.l3 a { padding-left: 18px; }
-.toc li.l4 a, .toc li.l5 a, .toc li.l6 a { padding-left: 28px; }
+.doc-layout > nav.toc a:hover, .doc-layout > nav.toc a.active { color: var(--ink); border-left-color: var(--accent); }
+.doc-layout > nav.toc li.l3 a { padding-left: 18px; }
+.doc-layout > nav.toc li.l4 a, .doc-layout > nav.toc li.l5 a, .doc-layout > nav.toc li.l6 a { padding-left: 28px; }
 @media (min-width: 960px) {
   .doc-layout.has-toc { grid-template-columns: 230px minmax(0, 1fr); }
-  .toc { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
-  .toc summary { pointer-events: none; }
+  .doc-layout > nav.toc { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
+  .doc-layout > nav.toc summary { pointer-events: none; }
 }
+.doc-layout.has-toc article.doc nav.toc,
+.doc-layout.has-toc article.doc .toc { display: none; }
 .doc-head { margin-bottom: 18px; }
 .doc-head h2 { margin: 8px 0 6px; font-size: 1.6rem; }
 .meta-line { font-size: 0.88rem; color: var(--muted); margin: 0 0 12px; }
@@ -692,8 +694,8 @@ pub fn document(
     } else {
         ""
     };
-    let extra_head = if matches!(kind, Kind::Markdown)
-        && (rendered.has_code || rendered.has_mermaid || has_toc)
+    let extra_head = if has_toc
+        || (matches!(kind, Kind::Markdown) && (rendered.has_code || rendered.has_mermaid))
     {
         r#"<script src="/static/doc.js"></script>"#
     } else {
@@ -800,6 +802,55 @@ mod tests {
         assert!(html.contains("id=\"color-scheme\""));
         assert!(html.contains("html[data-theme=\"dark\"]"));
         assert!(html.contains("html[data-theme=\"auto\"]"));
+    }
+
+    #[test]
+    fn toc_sticky_styles_are_scoped_to_sidebar() {
+        let html = login(None, None);
+        assert!(html.contains(".doc-layout > nav.toc { position: sticky;"));
+        assert!(!html.contains("\n.toc { position: sticky;"));
+        assert!(html.contains(".doc-layout.has-toc article.doc .toc { display: none; }"));
+    }
+
+    #[test]
+    fn html_document_uses_sidebar_toc() {
+        let meta = Meta {
+            project: "inbox".into(),
+            slug: "cutover.html".into(),
+            title: "Cutover".into(),
+            content_type: "text/html".into(),
+            bytes: 200,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+        let rendered = crate::render::Rendered {
+            html: r##"<nav class="toc"><a href="#s1">Problem</a></nav><h1 id="cutover">Cutover</h1><h2 id="s1">Problem</h2><h2 id="s2">Plan</h2>"##.into(),
+            toc: vec![
+                TocItem {
+                    level: 1,
+                    id: "cutover".into(),
+                    text: "Cutover".into(),
+                },
+                TocItem {
+                    level: 2,
+                    id: "s1".into(),
+                    text: "Problem".into(),
+                },
+                TocItem {
+                    level: 2,
+                    id: "s2".into(),
+                    text: "Plan".into(),
+                },
+            ],
+            has_mermaid: false,
+            has_code: false,
+        };
+        let html = document(&meta, Kind::Html, &rendered, None, None);
+        assert!(html.contains("class=\"doc-layout has-toc\""));
+        assert!(html.contains("On this page"));
+        assert!(html.contains("/static/doc.js"));
+        assert!(html.contains("<article class=\"doc\">"));
+        assert!(html.contains("nav class=\"toc\""));
     }
 }
 
