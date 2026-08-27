@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod highlight;
 mod pages;
+mod pdf;
 mod render;
 mod service;
 mod store;
@@ -140,9 +141,11 @@ fn router(app: App) -> Router {
         .route("/d", post(create_multipart))
         .route("/d/{slug}", get(view_doc).put(put_doc))
         .route("/d/{slug}/raw", get(raw_doc))
+        .route("/d/{slug}/pdf", get(pdf_doc))
         .route("/d/{slug}/delete", post(delete_doc))
         .route("/d/{project}/{slug}", get(view_doc_p).put(put_doc_p))
         .route("/d/{project}/{slug}/raw", get(raw_doc_p))
+        .route("/d/{project}/{slug}/pdf", get(pdf_doc_p))
         .route("/d/{project}/{slug}/delete", post(delete_doc_p))
         .route("/api/docs", get(api_list).post(api_create))
         .route(
@@ -672,6 +675,77 @@ async fn raw_doc(State(app): State<App>, Authed: Authed, Path(slug): Path<String
     raw_body(app, DEFAULT_PROJECT.to_string(), slug).await
 }
 
+async fn pdf_doc(State(app): State<App>, Path(slug): Path<String>, headers: HeaderMap) -> Response {
+    export_pdf(app, DEFAULT_PROJECT.to_string(), slug, headers).await
+}
+
+async fn pdf_doc_p(
+    State(app): State<App>,
+    Path((project, slug)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    export_pdf(app, project, slug, headers).await
+}
+
+async fn export_pdf(app: App, project: String, slug: String, headers: HeaderMap) -> Response {
+    if !authed(&app, &headers) {
+        let path = if project == DEFAULT_PROJECT {
+            format!("/d/{slug}/pdf")
+        } else {
+            format!("/d/{project}/{slug}/pdf")
+        };
+        return redirect_to_login(&path);
+    }
+    let meta = match app.store.get_meta(&project, &slug).await {
+        Ok(m) => m,
+        Err(StoreError::NotFound | StoreError::BadSlug) => {
+            return (StatusCode::NOT_FOUND, Html(pages::not_found())).into_response();
+        }
+        Err(e) => return store_error(e),
+    };
+    let body = match app.store.get_content(&project, &slug).await {
+        Ok(b) => b,
+        Err(e) => return store_error(e),
+    };
+    let kind = view_kind(&meta.content_type, &meta.slug);
+    let title = meta.title.clone();
+    let slug_owned = meta.slug.clone();
+    let rendered = match tokio::task::spawn_blocking(move || {
+        pdf::render(kind, &title, &slug_owned, &body)
+    })
+    .await
+    {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(e)) => {
+            warn!("pdf export failed: {e}");
+            return (StatusCode::BAD_REQUEST, e).into_response();
+        }
+        Err(e) => {
+            warn!("pdf export join failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "pdf export failed").into_response();
+        }
+    };
+    let filename = pdf::filename(&meta.slug);
+    let mut res = Response::new(Body::from(rendered));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/pdf"),
+    );
+    res.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!(
+            "attachment; filename=\"{}\"",
+            filename.replace('"', "")
+        ))
+        .unwrap_or(HeaderValue::from_static("attachment; filename=\"document.pdf\"")),
+    );
+    res.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    res
+}
+
 async fn raw_doc_p(
     State(app): State<App>,
     Authed: Authed,
@@ -1190,6 +1264,7 @@ mod tests {
         let html = body_string(res).await;
         assert!(html.contains("<strong>world</strong>") || html.contains("<p>hello"));
         assert!(html.contains("Standup"));
+        assert!(html.contains("/d/inbox/notes.md/pdf"));
 
         let res = app
             .oneshot(
@@ -1202,6 +1277,55 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn export_markdown_pdf() {
+        let dir = std::env::temp_dir().join(format!("gist-test-{}", nanoid::nanoid!(6)));
+        let app = test_app(dir.clone());
+        let res = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("PUT")
+                    .uri("/d/design.md")
+                    .header("authorization", "Bearer test-token-16chars")
+                    .header("content-type", "text/markdown")
+                    .body(Body::from("# Design\n\nHello.\n\n## Plan\n\nWorld.\n"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+
+        let res = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/d/design.md/pdf")
+                    .header("authorization", "Bearer test-token-16chars")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(
+            res.headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/pdf")
+        );
+        let disp = res
+            .headers()
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(disp.contains("design.pdf"));
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        assert!(bytes.starts_with(b"%PDF"));
+        assert!(bytes.len() > 500);
 
         let _ = std::fs::remove_dir_all(dir);
     }

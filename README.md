@@ -107,6 +107,7 @@ curl -fsS -X POST "$GIST_URL/api/docs" \
 | `PUT` | `/d/{slug}` | Create or replace a document |
 | `GET` | `/d/{slug}` | Rendered view (browser) |
 | `GET` | `/d/{slug}/raw` | Original bytes |
+| `GET` | `/d/{slug}/pdf` | PDF of the document (headings become the outline) |
 | `DELETE` | `/api/docs/{slug}` | Remove |
 | `GET` | `/api/docs` | JSON list |
 | `GET` | `/health` | Liveness, no auth |

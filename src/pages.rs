@@ -271,6 +271,36 @@ label.theme-pick select {
   width: auto; padding: 6px 8px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit;
 }
+@media print {
+  html, body {
+    background: var(--paper); color: var(--ink);
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  header.app, footer.app, .actions, .pager, .copy-btn,
+  label.scheme-pick, label.theme-pick, .doc-head > a, nav.toc {
+    display: none !important;
+  }
+  header.app, footer.app, main,
+  body.doc-page header.app, body.doc-page footer.app, body.doc-page main {
+    width: auto; margin: 0;
+  }
+  .doc-layout, .doc-layout.has-toc { display: block; }
+  .doc-head { margin: 0 0 10px; }
+  .doc-head h2 { font-size: 1.35rem; margin: 0 0 4px; }
+  article.doc {
+    border: 0; border-radius: 0; padding: 0; background: transparent;
+  }
+  article.doc pre, pre.plain, article.doc .code-block pre.syn-code {
+    overflow: visible; white-space: pre-wrap;
+  }
+  .table-wrap { overflow: visible; border: 0; }
+  article.doc .code-block, article.doc .mermaid-wrap, article.doc img,
+  article.doc table, img.preview {
+    break-inside: avoid;
+  }
+  embed.pdf, iframe.pdf { display: none; }
+  @page { margin: 14mm; }
+}
 @media (max-width: 720px) {
   header.app, footer.app, main,
   body.doc-page header.app, body.doc-page footer.app, body.doc-page main {
@@ -694,13 +724,8 @@ pub fn document(
     } else {
         ""
     };
-    let extra_head = if has_toc
-        || (matches!(kind, Kind::Markdown) && (rendered.has_code || rendered.has_mermaid))
-    {
-        r#"<script src="/static/doc.js"></script>"#
-    } else {
-        ""
-    };
+    let extra_head = r#"<script src="/static/doc.js"></script>"#;
+    let pdf_btn = pdf_action(kind, meta);
     let mut body_class = "doc-page".to_string();
     if rendered.has_code {
         body_class.push_str(" has-code");
@@ -720,6 +745,7 @@ pub fn document(
   <p class="meta-line">{kind} · {project_label}/{slug} · {size} · {when}</p>
   <div class="actions">
     <a class="btn ghost" href="{href}/raw">Raw</a>
+    {pdf_btn}
     {theme_pick}
     <form method="post" action="{href}/delete">
       <button class="danger" type="submit">Delete</button>
@@ -741,6 +767,7 @@ pub fn document(
             href = esc(&meta.href()),
             size = esc(&human_size(meta.bytes)),
             when = esc(&human_time(&meta.updated)),
+            pdf_btn = pdf_btn,
             theme_pick = theme_pick,
             body_html = body_html,
             newer = newer_link,
@@ -749,6 +776,18 @@ pub fn document(
         &body_class,
         extra_css,
         extra_head,
+    )
+}
+
+fn pdf_action(kind: Kind, meta: &Meta) -> String {
+    if matches!(kind, Kind::File) {
+        return String::new();
+    }
+    let name = crate::pdf::filename(&meta.slug);
+    format!(
+        r#"<a class="btn ghost" href="{href}/pdf" download="{name}" aria-label="Export PDF">PDF</a>"#,
+        href = esc(&meta.href()),
+        name = esc(&name),
     )
 }
 
@@ -851,6 +890,43 @@ mod tests {
         assert!(html.contains("/static/doc.js"));
         assert!(html.contains("<article class=\"doc\">"));
         assert!(html.contains("nav class=\"toc\""));
+        assert!(html.contains("/d/inbox/cutover.html/pdf"));
+        assert!(html.contains("@media print"));
+    }
+
+    #[test]
+    fn markdown_document_has_pdf_export() {
+        let meta = Meta {
+            project: "inbox".into(),
+            slug: "notes.md".into(),
+            title: "Notes".into(),
+            content_type: "text/markdown".into(),
+            bytes: 12,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+        let html = document(&meta, Kind::Markdown, &Rendered::default(), None, None);
+        assert!(html.contains("href=\"/d/inbox/notes.md/pdf\""));
+        assert!(html.contains("download=\"notes.pdf\""));
+        assert!(html.contains("/static/doc.js"));
+        assert!(!html.contains("id=\"export-pdf\""));
+    }
+
+    #[test]
+    fn pdf_document_exports_via_pdf_route() {
+        let meta = Meta {
+            project: "inbox".into(),
+            slug: "report.pdf".into(),
+            title: "Report".into(),
+            content_type: "application/pdf".into(),
+            bytes: 100,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+        let html = document(&meta, Kind::Pdf, &Rendered::default(), None, None);
+        assert!(html.contains("download=\"report.pdf\""));
+        assert!(html.contains("/d/inbox/report.pdf/pdf"));
+        assert!(!html.contains("id=\"export-pdf\""));
     }
 }
 
