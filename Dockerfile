@@ -22,6 +22,7 @@ RUN apt-get update \
        esac
 
 COPY Cargo.toml Cargo.lock AGENT.md ./
+COPY vendor ./vendor
 COPY src ./src
 COPY static ./static
 

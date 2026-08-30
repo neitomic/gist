@@ -298,4 +298,28 @@ mod tests {
         assert_eq!(filename("report.pdf"), "report.pdf");
         assert_eq!(filename("plain"), "plain.pdf");
     }
+
+    #[test]
+    fn code_and_table_export() {
+        let mut md = String::from("# Notes\n\n");
+        for i in 0..22 {
+            md.push_str(&format!(
+                "Filler paragraph {i} with enough text to push the following blocks toward a page break.\n\n"
+            ));
+        }
+        md.push_str("```rust\n");
+        for i in 0..8 {
+            md.push_str(&format!("let x{i} = {i};\n"));
+        }
+        md.push_str("```\n\n| Col | Val |\n| --- | --- |\n");
+        for i in 0..6 {
+            md.push_str(&format!("| row {i} | {i} |\n"));
+        }
+        let pdf = render(Kind::Markdown, "Notes", "notes.md", md.as_bytes()).expect("pdf");
+        assert!(pdf.starts_with(b"%PDF"));
+        assert!(pdf.len() > 500);
+        if std::env::var("GIST_DUMP_PDF").is_ok() {
+            std::fs::write("/tmp/gist-keep.pdf", &pdf).unwrap();
+        }
+    }
 }

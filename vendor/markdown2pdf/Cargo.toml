@@ -1,0 +1,50 @@
+[package]
+name = "markdown2pdf"
+version = "1.6.0"
+edition = "2024"
+rust-version = "1.88"
+authors = ["Ismael Sh <me@theiskaa.com>"]
+description = "Create PDF with Markdown files (a md to pdf transpiler)"
+readme = "README.md"
+license = "MIT"
+keywords = ["md", "markdown", "pdf", "markdown-to-pdf", "markdown2pdf"]
+repository = "https://github.com/theiskaa/markdown2pdf"
+build = "build.rs"
+
+[lib]
+name = "markdown2pdf"
+path = "src/lib/lib.rs"
+
+[features]
+default = []
+fetch = ["dep:reqwest", "reqwest/rustls"]
+svg = ["dep:resvg"]
+
+[dependencies]
+log = "0.4"
+toml = "1.1"
+serde = { version = "1", features = ["derive"] }
+reqwest = { version = "0.13", features = [
+    "blocking",
+], default-features = false, optional = true }
+printpdf = { version = "0.11", default-features = false, features = [
+    "png",
+    "jpeg",
+] }
+phf = "0.13"
+
+# Foundation crates for the in-tree renderer (src/lib/render/).
+ttf-parser = "0.25"
+rustybuzz = "0.20"
+unicode-linebreak = "0.1"
+# default `variable-fonts` only subsets CFF2-variable; we don't use it.
+subsetter = { version = "0.2", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+hyphenation = { version = "0.8", default-features = false, features = ["embed_en-us"] }
+lopdf = { version = "0.44", default-features = false }
+resvg = { version = "0.47", default-features = false, optional = true }
+
+[build-dependencies]
+phf_codegen = "0.13"
+serde_json = "1"
+

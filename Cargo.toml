@@ -27,7 +27,7 @@ tower-http = { version = "0.6", features = ["limit", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ureq = "2"
-markdown2pdf = { version = "1.6.0", default-features = false }
+markdown2pdf = { path = "vendor/markdown2pdf", default-features = false }
 
 [dev-dependencies]
 flate2 = "1"
