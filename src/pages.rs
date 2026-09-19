@@ -125,23 +125,30 @@ ul.docs .title { font-weight: 650; }
 ul.docs .sub { color: var(--muted); font-size: 0.88rem; }
 .when { color: var(--muted); font-size: 0.82rem; white-space: nowrap; }
 article.doc {
+  /* ~70 characters of body text. A length, not `ch`: `ch` resolves against
+     each element's own font-size, so headings would get a far wider cap. */
+  --measure: 41rem;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 8px 36px 40px;
+  padding: 30px 40px 44px;
   font-family: Iowan Old Style, Palatino, Palatino Linotype, Book Antiqua, Georgia, serif;
-  font-size: 1.05rem; line-height: 1.65;
+  font-size: 1.05rem; line-height: 1.7;
   min-width: 0;
 }
 article.doc h1, article.doc h2, article.doc h3, article.doc h4 { line-height: 1.25; scroll-margin-top: 18px; }
-article.doc h1 { font-size: 2rem; margin: 1.4em 0 0.5em; }
-article.doc h2 { font-size: 1.45rem; margin: 1.5em 0 0.45em; padding-bottom: 0.2em; border-bottom: 1px solid var(--line); }
-article.doc h3 { font-size: 1.18rem; margin: 1.3em 0 0.4em; }
-article.doc h4 { font-size: 1.05rem; margin: 1.2em 0 0.35em; }
-article.doc p { margin: 0.85em 0; overflow-wrap: anywhere; word-break: break-word; }
+article.doc h1 { font-size: 1.95rem; margin: 1.5em 0 0.6em; }
+article.doc h2 { font-size: 1.4rem; margin: 2em 0 0.7em; padding-bottom: 0.25em; border-bottom: 1px solid var(--line); }
+article.doc h3 { font-size: 1.15rem; margin: 1.7em 0 0.5em; }
+article.doc h4 { font-size: 1.02rem; margin: 1.45em 0 0.4em; letter-spacing: 0.01em; }
+article.doc p { margin: 1.1em 0; overflow-wrap: anywhere; word-break: break-word; }
+article.doc ul, article.doc ol { margin: 1.1em 0; padding-left: 1.5em; }
+article.doc li { margin: 0.4em 0; }
+article.doc li > ul, article.doc li > ol { margin: 0.4em 0; }
+article.doc li > p { margin: 0.5em 0; }
 article.doc li, article.doc dd { overflow-wrap: anywhere; word-break: break-word; }
 article.doc a { text-underline-offset: 2px; overflow-wrap: anywhere; word-break: break-word; }
-article.doc hr { border: 0; border-top: 1px solid var(--line); margin: 2em 0; }
+article.doc hr { border: 0; border-top: 1px solid var(--line); margin: 2.6em 0; }
 article.doc pre, article.doc code, pre.plain, .code-meta { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88rem; }
 article.doc :not(pre) > code {
   background: var(--chip); border-radius: 5px; padding: 0.12em 0.38em; font-size: 0.86em;
@@ -153,7 +160,7 @@ article.doc pre, pre.plain {
   max-width: 100%;
 }
 article.doc .code-block {
-  margin: 1.1em 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  margin: 1.6em 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
 }
 article.doc .code-meta {
   display: flex; justify-content: space-between; align-items: center;
@@ -170,7 +177,7 @@ article.doc .copy-btn {
   color: var(--muted); border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; cursor: pointer;
 }
 article.doc .mermaid-wrap {
-  margin: 1.1em 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px;
+  margin: 1.6em 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--bg); overflow: auto; -webkit-overflow-scrolling: touch; text-align: center;
   max-width: 100%;
 }
@@ -179,7 +186,7 @@ article.doc pre.mermaid { background: transparent; border: 0; text-align: left; 
 article.doc img, article.doc video, article.doc svg { max-width: 100%; height: auto; border-radius: 8px; }
 .table-wrap {
   width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain; margin: 1em 0;
+  overscroll-behavior-x: contain; margin: 1.6em 0;
   border: 1px solid var(--line); border-radius: 8px; background: var(--paper);
 }
 article.doc table {
@@ -193,7 +200,7 @@ article.doc th, article.doc td {
 article.doc th { background: var(--chip); text-align: left; }
 article.doc tr:nth-child(even) td { background: color-mix(in srgb, var(--chip) 55%, transparent); }
 article.doc blockquote {
-  margin: 1em 0; padding: 0.2em 0.8em 0.2em 1em; border-left: 3px solid var(--line);
+  margin: 1.5em 0; padding: 0.2em 0.8em 0.2em 1em; border-left: 3px solid var(--line);
   color: var(--muted); min-width: 0; overflow-wrap: anywhere; word-break: break-word;
 }
 article.doc blockquote.markdown-alert-note,
@@ -218,6 +225,20 @@ article.doc kbd {
 article.doc dt { font-weight: 650; margin-top: 0.8em; }
 article.doc dd { margin-left: 1.2em; color: var(--muted); }
 article.doc .footnotes { margin-top: 2.2em; padding-top: 0.8em; border-top: 1px solid var(--line); font-size: 0.92em; color: var(--muted); }
+/* Hold prose to a readable measure; wide blocks keep the full card width.
+   Must come after the element rules above, whose margin shorthands would
+   otherwise reset the auto side margins that centre the text column. */
+article.doc > * { max-width: var(--measure); }
+/* Centre that column. `article.doc > *` is less specific than `article.doc p`,
+   so the elements are named here to win against their margin shorthands. */
+article.doc > :is(h1, h2, h3, h4, h5, h6, p, ul, ol, dl, blockquote, details) {
+  margin-left: auto; margin-right: auto;
+}
+article.doc > .table-wrap, article.doc > .code-block, article.doc > .mermaid-wrap,
+article.doc > pre, article.doc > figure, article.doc > img, article.doc > hr {
+  max-width: 100%;
+}
+article.doc > :first-child { margin-top: 0; }
 .doc-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-items: start; }
 .doc-layout > nav.toc {
   background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
@@ -240,6 +261,9 @@ article.doc .footnotes { margin-top: 2.2em; padding-top: 0.8em; border-top: 1px 
 }
 .doc-layout.has-toc article.doc nav.toc,
 .doc-layout.has-toc article.doc .toc { display: none; }
+html[data-toc="off"] .doc-layout > nav.toc { display: none; }
+html[data-toc="off"] .doc-layout.has-toc { grid-template-columns: minmax(0, 1fr); }
+#toc-toggle[aria-pressed="false"] { color: var(--muted); }
 .doc-head { margin-bottom: 18px; }
 .doc-head h2 { margin: 8px 0 6px; font-size: 1.6rem; }
 .meta-line { font-size: 0.88rem; color: var(--muted); margin: 0 0 12px; }
@@ -290,6 +314,7 @@ label.theme-pick select {
   article.doc {
     border: 0; border-radius: 0; padding: 0; background: transparent;
   }
+  article.doc > * { max-width: none; }
   article.doc pre, pre.plain, article.doc .code-block pre.syn-code {
     overflow: visible; white-space: pre-wrap;
   }
@@ -309,7 +334,7 @@ label.theme-pick select {
   header.app { padding: 16px 0 12px; gap: 10px; flex-wrap: wrap; }
   header.app nav { gap: 12px; }
   header.app .header-end { gap: 12px; }
-  article.doc { padding: 4px 14px 28px; font-size: 1rem; border-radius: 10px; }
+  article.doc { padding: 20px 16px 30px; font-size: 1rem; border-radius: 10px; }
   article.doc h1 { font-size: 1.45rem; }
   article.doc h2 { font-size: 1.2rem; }
   article.doc h3 { font-size: 1.08rem; }
@@ -726,6 +751,11 @@ pub fn document(
     };
     let extra_head = r#"<script src="/static/doc.js"></script>"#;
     let pdf_btn = pdf_action(kind, meta);
+    let toc_btn = if has_toc {
+        r#"<button class="ghost" type="button" id="toc-toggle" aria-pressed="true">Contents</button>"#
+    } else {
+        ""
+    };
     let mut body_class = "doc-page".to_string();
     if rendered.has_code {
         body_class.push_str(" has-code");
@@ -746,6 +776,7 @@ pub fn document(
   <div class="actions">
     <a class="btn ghost" href="{href}/raw">Raw</a>
     {pdf_btn}
+    {toc_btn}
     {theme_pick}
     <form method="post" action="{href}/delete">
       <button class="danger" type="submit">Delete</button>
@@ -768,6 +799,7 @@ pub fn document(
             size = esc(&human_size(meta.bytes)),
             when = esc(&human_time(&meta.updated)),
             pdf_btn = pdf_btn,
+            toc_btn = toc_btn,
             theme_pick = theme_pick,
             body_html = body_html,
             newer = newer_link,
@@ -892,6 +924,37 @@ mod tests {
         assert!(html.contains("nav class=\"toc\""));
         assert!(html.contains("/d/inbox/cutover.html/pdf"));
         assert!(html.contains("@media print"));
+        // The sidebar can be hidden, and the collapsed state has a style rule.
+        assert!(html.contains("id=\"toc-toggle\""));
+        assert!(html.contains("html[data-toc=\"off\"] .doc-layout > nav.toc { display: none; }"));
+    }
+
+    #[test]
+    fn document_without_toc_has_no_toggle() {
+        let meta = Meta {
+            project: "inbox".into(),
+            slug: "notes.md".into(),
+            title: "Notes".into(),
+            content_type: "text/markdown".into(),
+            bytes: 12,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+        let html = document(&meta, Kind::Markdown, &Rendered::default(), None, None);
+        assert!(!html.contains("id=\"toc-toggle\""));
+    }
+
+    #[test]
+    fn prose_is_held_to_a_measure_but_wide_blocks_are_not() {
+        let html = login(None, None);
+        assert!(html.contains("article.doc > * { max-width: var(--measure); }
+/* Centre that column. `article.doc > *` is less specific than `article.doc p`,
+   so the elements are named here to win against their margin shorthands. */
+article.doc > :is(h1, h2, h3, h4, h5, h6, p, ul, ol, dl, blockquote, details) {
+  margin-left: auto; margin-right: auto;
+}"));
+        assert!(html.contains("article.doc > .table-wrap"));
+        assert!(html.contains("article.doc > * { max-width: none; }"));
     }
 
     #[test]

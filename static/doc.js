@@ -7,6 +7,13 @@
   if (!theme) theme = "auto";
   document.documentElement.setAttribute("data-code-theme", theme);
 
+  var TOC_KEY = "gist-toc";
+  var tocOn = true;
+  try {
+    tocOn = localStorage.getItem(TOC_KEY) !== "off";
+  } catch (e) {}
+  document.documentElement.setAttribute("data-toc", tocOn ? "on" : "off");
+
   function onReady(fn) {
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", fn);
@@ -27,10 +34,25 @@
         document.documentElement.setAttribute("data-code-theme", theme);
       });
     }
+    wireTocToggle();
     addCopyButtons();
     watchToc();
     loadMermaid();
   });
+
+  function wireTocToggle() {
+    var btn = document.getElementById("toc-toggle");
+    if (!btn) return;
+    btn.setAttribute("aria-pressed", tocOn ? "true" : "false");
+    btn.addEventListener("click", function () {
+      tocOn = !tocOn;
+      try {
+        localStorage.setItem(TOC_KEY, tocOn ? "on" : "off");
+      } catch (e) {}
+      document.documentElement.setAttribute("data-toc", tocOn ? "on" : "off");
+      btn.setAttribute("aria-pressed", tocOn ? "true" : "false");
+    });
+  }
 
   function addCopyButtons() {
     document.querySelectorAll("article.doc .code-block").forEach(function (block) {
