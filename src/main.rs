@@ -1,3 +1,4 @@
+mod agents;
 mod auth;
 mod cli;
 mod config;
@@ -55,8 +56,8 @@ impl axum::extract::FromRef<App> for Token {
 async fn main() {
     let cli = cli::Cli::parse();
     match cli.command {
-        None | Some(cli::Command::Serve) => serve().await,
-        Some(cmd) => {
+        cli::Command::Serve { yes } => serve(yes).await,
+        cmd => {
             if let Err(e) = cli::run(cmd) {
                 eprintln!("gist: {e}");
                 std::process::exit(1);
@@ -65,7 +66,7 @@ async fn main() {
     }
 }
 
-async fn serve() {
+async fn serve(assume_yes: bool) {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -89,6 +90,11 @@ async fn serve() {
     let token = load_or_create_token(&data);
     let public_base = std::env::var("GIST_PUBLIC_URL").ok();
     let existing = config::load_file(&config::path()).unwrap_or_default();
+    if let Some(target) = config::client_clash(&existing, &token) {
+        if !confirm_client_overwrite(&target, assume_yes) {
+            std::process::exit(1);
+        }
+    }
     let agent_cfg =
         config::apply_listen(existing, &bind.to_string(), public_base.as_deref(), &token);
     match config::save(&agent_cfg) {
@@ -196,6 +202,32 @@ async fn shutdown() {
     info!("shutting down");
 }
 
+/// `serve` rewrites the config file that `gist put` reads. When that file is
+/// already a client for another server, say so before replacing its token.
+fn confirm_client_overwrite(target: &str, assume_yes: bool) -> bool {
+    use std::io::{BufRead, IsTerminal};
+
+    let path = config::path();
+    eprintln!("gist: {} is a client for {target}", path.display());
+    eprintln!("gist: starting a server here replaces that token; `gist put` and `gist list` will stop working against {target}");
+
+    if assume_yes || std::env::var("GIST_ASSUME_YES").is_ok() {
+        eprintln!("gist: continuing (--yes)");
+        return true;
+    }
+    if !std::io::stdin().is_terminal() {
+        eprintln!("gist: refusing to overwrite it without a terminal to ask. Pass --yes, set GIST_ASSUME_YES=1, or point GIST_CONFIG somewhere else.");
+        return false;
+    }
+    eprint!("Replace the token in {}? [y/N] ", path.display());
+    let _ = std::io::stderr().flush();
+    let mut line = String::new();
+    if std::io::stdin().lock().read_line(&mut line).is_err() {
+        return false;
+    }
+    matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
 fn load_or_create_token(data: &std::path::Path) -> String {
     if let Ok(t) = std::env::var("GIST_TOKEN") {
         let t = t.trim().to_string();
@@ -253,7 +285,7 @@ fn js_file(body: &'static str) -> impl IntoResponse {
             ),
             (
                 header::CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=86400"),
+                HeaderValue::from_static("public, max-age=31536000, immutable"),
             ),
         ],
         body,
@@ -593,7 +625,8 @@ async fn create_multipart(
         return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
     }
 
-    let ct = guess_content_type(&slug, content_type.as_deref());
+    let type_name = filename.as_deref().unwrap_or(slug.as_str());
+    let ct = guess_content_type(type_name, content_type.as_deref());
     let title = title.unwrap_or_else(|| guess_title(&slug, &ct, &body));
     match app.store.put(&project, &slug, title, ct, &body).await {
         Ok(meta) => {
@@ -710,21 +743,20 @@ async fn export_pdf(app: App, project: String, slug: String, headers: HeaderMap)
     let kind = view_kind(&meta.content_type, &meta.slug);
     let title = meta.title.clone();
     let slug_owned = meta.slug.clone();
-    let rendered = match tokio::task::spawn_blocking(move || {
-        pdf::render(kind, &title, &slug_owned, &body)
-    })
-    .await
-    {
-        Ok(Ok(bytes)) => bytes,
-        Ok(Err(e)) => {
-            warn!("pdf export failed: {e}");
-            return (StatusCode::BAD_REQUEST, e).into_response();
-        }
-        Err(e) => {
-            warn!("pdf export join failed: {e}");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "pdf export failed").into_response();
-        }
-    };
+    let rendered =
+        match tokio::task::spawn_blocking(move || pdf::render(kind, &title, &slug_owned, &body))
+            .await
+        {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(e)) => {
+                warn!("pdf export failed: {e}");
+                return (StatusCode::BAD_REQUEST, e).into_response();
+            }
+            Err(e) => {
+                warn!("pdf export join failed: {e}");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "pdf export failed").into_response();
+            }
+        };
     let filename = pdf::filename(&meta.slug);
     let mut res = Response::new(Body::from(rendered));
     res.headers_mut().insert(
@@ -737,7 +769,9 @@ async fn export_pdf(app: App, project: String, slug: String, headers: HeaderMap)
             "attachment; filename=\"{}\"",
             filename.replace('"', "")
         ))
-        .unwrap_or(HeaderValue::from_static("attachment; filename=\"document.pdf\"")),
+        .unwrap_or(HeaderValue::from_static(
+            "attachment; filename=\"document.pdf\"",
+        )),
     );
     res.headers_mut().insert(
         header::X_CONTENT_TYPE_OPTIONS,

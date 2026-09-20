@@ -1,5 +1,5 @@
 use crate::config::{self, Config};
-use crate::store::{guess_content_type, Store};
+use crate::store::{content_type_from_filename, Store};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
@@ -11,13 +11,17 @@ use std::path::PathBuf;
 )]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Option<Command>,
+    pub command: Command,
 }
 
 #[derive(clap::Subcommand, Debug)]
 pub enum Command {
-    /// Run the inbox server (default)
-    Serve,
+    /// Run the inbox server
+    Serve {
+        /// Overwrite this machine's client credentials without asking
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
     /// Upload a file (reads ~/.config/gist/config)
     Put {
         /// File to upload
@@ -40,11 +44,20 @@ pub enum Command {
     Install,
     /// Stop and remove the macOS launchd service
     Uninstall,
+    /// Write the gist instructions where coding agents will read them
+    Agents {
+        /// Which agents to set up (default: all)
+        #[arg(value_enum)]
+        targets: Vec<crate::agents::Target>,
+        /// Write to the home directory instead of this project
+        #[arg(long, short)]
+        global: bool,
+    },
 }
 
 pub fn run(command: Command) -> Result<(), String> {
     match command {
-        Command::Serve => unreachable!("serve is handled in main"),
+        Command::Serve { .. } => unreachable!("serve is handled in main"),
         Command::Put {
             file,
             project,
@@ -55,7 +68,39 @@ pub fn run(command: Command) -> Result<(), String> {
         Command::Env => print_env(),
         Command::Install => crate::service::install(),
         Command::Uninstall => crate::service::uninstall(),
+        Command::Agents { targets, global } => install_agents(&targets, global),
     }
+}
+
+fn install_agents(targets: &[crate::agents::Target], global: bool) -> Result<(), String> {
+    use crate::agents::Target;
+    let chosen: Vec<Target> = if targets.is_empty() {
+        Target::ALL.to_vec()
+    } else {
+        let mut v = targets.to_vec();
+        v.dedup();
+        v
+    };
+    let root = if global {
+        crate::agents::home_dir()?
+    } else {
+        std::env::current_dir().map_err(|e| format!("current directory: {e}"))?
+    };
+    for t in chosen {
+        let path = t.path(&root, global);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        let contents = if t.is_skill() {
+            crate::agents::skill_file()
+        } else {
+            let existing = std::fs::read_to_string(&path).unwrap_or_default();
+            crate::agents::merge_block(&existing, &crate::agents::instructions())
+        };
+        std::fs::write(&path, contents).map_err(|e| format!("{}: {e}", path.display()))?;
+        println!("{:<7} {}", t.name(), path.display());
+    }
+    Ok(())
 }
 
 fn require_config() -> Result<Config, String> {
@@ -87,7 +132,7 @@ fn put(
     Store::validate_slug(&slug).map_err(|_| {
         format!("invalid slug '{slug}' (use letters, digits, '.', '_' or '-', max 128)")
     })?;
-    let ct = guess_content_type(&slug, None);
+    let ct = content_type_from_filename(name);
     let mut req = ureq::put(&format!("{}/d/{project}/{slug}", cfg.cli_url()))
         .set("Authorization", &format!("Bearer {}", cfg.token))
         .set("Content-Type", &ct);
@@ -165,4 +210,35 @@ fn infer_project() -> String {
 
 fn shell_single(s: &str) -> String {
     format!("'{}'", s.replace('\'', r#"'"'"'"#))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn bare_gist_does_not_start_the_server() {
+        // No subcommand must show usage, never start an implicit `serve`.
+        let err = Cli::try_parse_from(["gist"]).unwrap_err();
+        assert_eq!(
+            err.kind(),
+            clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+        let shown = err.to_string();
+        assert!(shown.contains("serve"), "help should list serve: {shown}");
+        assert!(shown.contains("put"), "help should list put: {shown}");
+    }
+
+    #[test]
+    fn serving_is_explicit() {
+        let cli = Cli::try_parse_from(["gist", "serve"]).unwrap();
+        assert!(matches!(cli.command, Command::Serve { yes: false }));
+    }
+
+    #[test]
+    fn cli_subcommands_still_parse() {
+        let cli = Cli::try_parse_from(["gist", "put", "notes.md"]).unwrap();
+        assert!(matches!(cli.command, Command::Put { .. }));
+    }
 }

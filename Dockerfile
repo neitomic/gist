@@ -56,3 +56,4 @@ EXPOSE 8787
 USER gist
 WORKDIR /data
 ENTRYPOINT ["gist"]
+CMD ["serve"]

@@ -292,23 +292,49 @@ fn html_title(html: &str) -> Option<String> {
     }
 }
 
-pub fn guess_content_type(slug: &str, header: Option<&str>) -> String {
-    if let Some(ct) = header {
-        let ct = ct.split(';').next().unwrap_or(ct).trim();
-        if !ct.is_empty() && ct != "application/octet-stream" && ct != "text/plain" {
-            return ct.to_string();
-        }
-        if ct == "text/plain" {
-            if slug.ends_with(".md") || slug.ends_with(".markdown") {
-                return "text/markdown".into();
+/// Content-Type from a filename extension. Used by `gist put`.
+pub fn content_type_from_filename(name: &str) -> String {
+    from_extension(name).unwrap_or_else(|| "application/octet-stream".into())
+}
+
+/// Prefer a real HTTP Content-Type header; fall back to the name's extension.
+/// `application/octet-stream` is treated as "unknown". Browsers often send
+/// `text/plain` for `.md`, so that pair is upgraded to `text/markdown`.
+pub fn guess_content_type(name: &str, header: Option<&str>) -> String {
+    if let Some(ct) = header.and_then(from_header) {
+        if ct.eq_ignore_ascii_case("text/plain") {
+            if let Some(from_ext) = from_extension(name) {
+                if from_ext == "text/markdown" {
+                    return from_ext;
+                }
             }
-            return ct.to_string();
         }
+        return ct;
     }
-    mime_guess::from_path(slug)
+    content_type_from_filename(name)
+}
+
+fn from_extension(name: &str) -> Option<String> {
+    let ext = std::path::Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())?;
+    if matches!(ext.as_str(), "md" | "markdown" | "mdown") {
+        return Some("text/markdown".into());
+    }
+    mime_guess::from_ext(&ext)
         .first_raw()
-        .unwrap_or("application/octet-stream")
-        .to_string()
+        .filter(|ct| *ct != "application/octet-stream")
+        .map(|ct| ct.to_string())
+}
+
+fn from_header(ct: &str) -> Option<String> {
+    let ct = ct.split(';').next().unwrap_or(ct).trim();
+    if ct.is_empty() || ct.eq_ignore_ascii_case("application/octet-stream") {
+        None
+    } else {
+        Some(ct.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -325,5 +351,68 @@ mod tests {
         assert!(Store::validate_slug("").is_err());
         assert!(Store::validate_project("gist").is_ok());
         assert!(Store::validate_project("my-app").is_ok());
+    }
+
+    #[test]
+    fn filename_maps_common_extensions() {
+        assert_eq!(content_type_from_filename("notes.md"), "text/markdown");
+        assert_eq!(content_type_from_filename("NOTES.MD"), "text/markdown");
+        assert_eq!(
+            content_type_from_filename("readme.markdown"),
+            "text/markdown"
+        );
+        assert_eq!(
+            content_type_from_filename("/tmp/docs/notes.md"),
+            "text/markdown"
+        );
+        assert_eq!(content_type_from_filename("photo.png"), "image/png");
+        assert_eq!(content_type_from_filename("report.pdf"), "application/pdf");
+        assert_eq!(content_type_from_filename("page.html"), "text/html");
+        assert_eq!(content_type_from_filename("data.json"), "application/json");
+        assert_eq!(
+            content_type_from_filename("no-ext"),
+            "application/octet-stream"
+        );
+    }
+
+    #[test]
+    fn header_wins_over_extension() {
+        assert_eq!(
+            guess_content_type("notes.md", Some("application/json")),
+            "application/json"
+        );
+        assert_eq!(
+            guess_content_type("photo.png", Some("image/jpeg")),
+            "image/jpeg"
+        );
+        assert_eq!(
+            guess_content_type("notes", Some("text/markdown")),
+            "text/markdown"
+        );
+        assert_eq!(
+            guess_content_type("notes", Some("text/plain; charset=utf-8")),
+            "text/plain"
+        );
+    }
+
+    #[test]
+    fn unknown_header_falls_back_to_filename() {
+        assert_eq!(guess_content_type("notes.md", None), "text/markdown");
+        assert_eq!(
+            guess_content_type("notes.md", Some("application/octet-stream")),
+            "text/markdown"
+        );
+        assert_eq!(
+            guess_content_type("notes.md", Some("text/plain")),
+            "text/markdown"
+        );
+        assert_eq!(
+            guess_content_type("notes", Some("application/octet-stream")),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            guess_content_type("notes", None),
+            "application/octet-stream"
+        );
     }
 }

@@ -89,7 +89,7 @@ button, .btn {
   background: var(--ink); color: var(--bg); font: inherit; cursor: pointer;
   text-decoration: none;
 }
-button.ghost, a.ghost {
+button.ghost, a.ghost, .btn.ghost {
   background: transparent; color: var(--ink); border: 1px solid var(--line);
 }
 button.danger { background: var(--accent); color: #fffdf8; }
@@ -261,9 +261,18 @@ article.doc > :first-child { margin-top: 0; }
 }
 .doc-layout.has-toc article.doc nav.toc,
 .doc-layout.has-toc article.doc .toc { display: none; }
-html[data-toc="off"] .doc-layout > nav.toc { display: none; }
-html[data-toc="off"] .doc-layout.has-toc { grid-template-columns: minmax(0, 1fr); }
-#toc-toggle[aria-pressed="false"] { color: var(--muted); }
+.toc-check {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; padding: 0;
+  pointer-events: none;
+}
+label.toc-toggle-btn { display: inline-block; margin: 0; font-size: inherit; color: inherit; }
+#toc-toggle:not(:checked) + .toc-toggle-btn { color: var(--muted); }
+#toc-toggle:focus-visible + .toc-toggle-btn { outline: 2px solid var(--accent); outline-offset: 2px; }
+html[data-toc="off"] .doc-layout > nav.toc,
+.doc-head:has(#toc-toggle:not(:checked)) + .doc-layout > nav.toc { display: none; }
+html[data-toc="off"] .doc-layout.has-toc,
+.doc-head:has(#toc-toggle:not(:checked)) + .doc-layout.has-toc { grid-template-columns: minmax(0, 1fr); }
 .doc-head { margin-bottom: 18px; }
 .doc-head h2 { margin: 8px 0 6px; font-size: 1.6rem; }
 .meta-line { font-size: 0.88rem; color: var(--muted); margin: 0 0 12px; }
@@ -376,6 +385,7 @@ fn shell_ex(
     } else {
         format!(" class=\"{}\"", esc(body_class))
     };
+    let theme_rev = asset_rev(include_str!("../static/theme.js"));
     format!(
         r#"<!doctype html>
 <html lang="en" data-theme="auto" data-code-theme="auto">
@@ -385,7 +395,7 @@ fn shell_ex(
 <meta name="color-scheme" content="light dark">
 <title>{title}</title>
 <style>{CSS}{extra_css}</style>
-<script src="/static/theme.js"></script>
+<script src="/static/theme.js?v={theme_rev}"></script>
 {extra_head}
 </head>
 <body{body_attr}>
@@ -412,6 +422,7 @@ fn shell_ex(
         CSS = CSS,
         extra_css = extra_css,
         extra_head = extra_head,
+        theme_rev = theme_rev,
         nav = nav,
         body_attr = body_attr,
         body = body
@@ -749,10 +760,14 @@ pub fn document(
     } else {
         ""
     };
-    let extra_head = r#"<script src="/static/doc.js"></script>"#;
+    let extra_head = format!(
+        r#"<script src="/static/doc.js?v={}"></script>"#,
+        asset_rev(include_str!("../static/doc.js"))
+    );
     let pdf_btn = pdf_action(kind, meta);
     let toc_btn = if has_toc {
-        r#"<button class="ghost" type="button" id="toc-toggle" aria-pressed="true">Contents</button>"#
+        r#"<input type="checkbox" class="toc-check" id="toc-toggle" checked aria-controls="doc-toc">
+    <label class="btn ghost toc-toggle-btn" for="toc-toggle">Contents</label>"#
     } else {
         ""
     };
@@ -807,8 +822,17 @@ pub fn document(
         ),
         &body_class,
         extra_css,
-        extra_head,
+        &extra_head,
     )
+}
+
+fn asset_rev(body: &str) -> String {
+    let mut h: u32 = 2166136261;
+    for b in body.as_bytes() {
+        h ^= u32::from(*b);
+        h = h.wrapping_mul(16777619);
+    }
+    format!("{h:08x}")
 }
 
 fn pdf_action(kind: Kind, meta: &Meta) -> String {
@@ -845,7 +869,7 @@ fn toc_nav(toc: &[TocItem]) -> String {
         })
         .collect();
     format!(
-        r#"<nav class="toc" aria-label="On this page">
+        r#"<nav class="toc" id="doc-toc" aria-label="On this page">
   <details open>
     <summary>On this page</summary>
     <ol>{lis}</ol>
@@ -926,7 +950,9 @@ mod tests {
         assert!(html.contains("@media print"));
         // The sidebar can be hidden, and the collapsed state has a style rule.
         assert!(html.contains("id=\"toc-toggle\""));
-        assert!(html.contains("html[data-toc=\"off\"] .doc-layout > nav.toc { display: none; }"));
+        assert!(html.contains("for=\"toc-toggle\""));
+        assert!(html.contains("html[data-toc=\"off\"] .doc-layout > nav.toc,"));
+        assert!(html.contains(".doc-head:has(#toc-toggle:not(:checked)) + .doc-layout > nav.toc"));
     }
 
     #[test]
@@ -947,12 +973,14 @@ mod tests {
     #[test]
     fn prose_is_held_to_a_measure_but_wide_blocks_are_not() {
         let html = login(None, None);
-        assert!(html.contains("article.doc > * { max-width: var(--measure); }
+        assert!(html.contains(
+            "article.doc > * { max-width: var(--measure); }
 /* Centre that column. `article.doc > *` is less specific than `article.doc p`,
    so the elements are named here to win against their margin shorthands. */
 article.doc > :is(h1, h2, h3, h4, h5, h6, p, ul, ol, dl, blockquote, details) {
   margin-left: auto; margin-right: auto;
-}"));
+}"
+        ));
         assert!(html.contains("article.doc > .table-wrap"));
         assert!(html.contains("article.doc > * { max-width: none; }"));
     }

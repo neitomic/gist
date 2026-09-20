@@ -41,16 +41,15 @@
   });
 
   function wireTocToggle() {
-    var btn = document.getElementById("toc-toggle");
-    if (!btn) return;
-    btn.setAttribute("aria-pressed", tocOn ? "true" : "false");
-    btn.addEventListener("click", function () {
-      tocOn = !tocOn;
+    var box = document.getElementById("toc-toggle");
+    if (!box) return;
+    box.checked = tocOn;
+    box.addEventListener("change", function () {
+      tocOn = box.checked;
       try {
         localStorage.setItem(TOC_KEY, tocOn ? "on" : "off");
       } catch (e) {}
       document.documentElement.setAttribute("data-toc", tocOn ? "on" : "off");
-      btn.setAttribute("aria-pressed", tocOn ? "true" : "false");
     });
   }
 

@@ -142,6 +142,25 @@ pub fn loopback_url(bind: &str) -> String {
     }
 }
 
+/// The config file doubles as this machine's client credentials. Starting a
+/// server rewrites the token in it, which silently breaks `gist put` against
+/// whatever server the file currently points at. Returns that server's URL
+/// when serving would replace someone else's token.
+///
+/// Normally there is no clash: `serve` adopts the token already in the file.
+/// A clash means the token came from `GIST_TOKEN` or the data directory and
+/// disagrees with the file.
+pub fn client_clash(existing: &Config, new_token: &str) -> Option<String> {
+    if existing.token.is_empty() || existing.token == new_token {
+        return None;
+    }
+    let target = existing.env_url();
+    if target.is_empty() {
+        return None;
+    }
+    Some(target.to_string())
+}
+
 /// Merge listen addresses into an existing config without dropping a remote `url`.
 pub fn apply_listen(mut cfg: Config, bind: &str, public: Option<&str>, token: &str) -> Config {
     cfg.token = token.to_string();
@@ -264,5 +283,57 @@ mod tests {
         );
         assert_eq!(cfg.url, "https://gist.example.com");
         assert_eq!(cfg.local_url, "http://127.0.0.1:8787");
+    }
+}
+
+#[cfg(test)]
+mod clash_tests {
+    use super::*;
+
+    fn cfg(url: &str, token: &str) -> Config {
+        Config {
+            url: url.into(),
+            token: token.into(),
+            local_url: String::new(),
+        }
+    }
+
+    #[test]
+    fn same_token_is_not_a_clash() {
+        // The usual restart: serve adopts the token already on disk.
+        assert_eq!(
+            client_clash(
+                &cfg("https://gist.example.com", "a".repeat(20).as_str()),
+                &"a".repeat(20)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn empty_config_is_not_a_clash() {
+        assert_eq!(client_clash(&Config::default(), "newtokennewtoken"), None);
+    }
+
+    #[test]
+    fn different_token_against_a_remote_is_a_clash() {
+        let existing = cfg("https://gist.neitomic.xyz", "realtokenrealtoken");
+        assert_eq!(
+            client_clash(&existing, "devtokendevtoken"),
+            Some("https://gist.neitomic.xyz".to_string())
+        );
+    }
+
+    #[test]
+    fn different_token_against_a_local_server_is_still_a_clash() {
+        let existing = Config {
+            url: String::new(),
+            token: "realtokenrealtoken".into(),
+            local_url: "http://127.0.0.1:8787".into(),
+        };
+        assert_eq!(
+            client_clash(&existing, "devtokendevtoken"),
+            Some("http://127.0.0.1:8787".to_string())
+        );
     }
 }

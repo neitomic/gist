@@ -8,12 +8,19 @@ Works on a laptop (`127.0.0.1`) or behind TLS on a server. Documents live as fil
 
 ```bash
 export GIST_TOKEN=$(openssl rand -hex 24)
-cargo run --release
+cargo run --release -- serve
 ```
 
 Open http://127.0.0.1:8787 and sign in with the token. The browser can save it as a site password. After that it stays signed in for up to 400 days via a cookie.
 
 If `GIST_TOKEN` is unset, a token is generated and written to `data/.token` (mode `0600`).
+
+`gist serve` rewrites `~/.config/gist/config`, which is also this machine's client
+credentials. If that file already points at another server with a different token,
+serving stops and asks first, so a throwaway server cannot silently break `gist put`
+against your real inbox. `--yes` (or `GIST_ASSUME_YES=1`) skips the question; with no
+terminal to ask, it refuses rather than overwriting. Normally there is nothing to ask:
+`serve` adopts the token already in the file.
 
 ## Agents
 
@@ -27,6 +34,18 @@ gist put report.html --title "Q3"
 gist list
 gist env          # print export GIST_URL / GIST_TOKEN for a remote agent
 ```
+
+Teach a coding agent to use the inbox:
+
+```bash
+gist agents                 # claude + codex + grok, in this project
+gist agents claude          # just one
+gist agents --global        # write under $HOME instead of the project
+```
+
+Claude and Grok get a skill file (`.claude/skills/gist/SKILL.md`, `.grok/skills/gist/SKILL.md`).
+Codex reads `AGENTS.md`, which is usually yours already, so gist keeps its guidance inside a
+`<!-- gist:begin -->` / `<!-- gist:end -->` block and rewrites only that block. Re-running is safe.
 
 Credential order: `GIST_URL` + `GIST_TOKEN` in the environment, then `~/.config/gist/config`. If the file has `local_url`, this machine's `gist put` / `gist list` use that; `gist env` prints `url` for a remote agent.
 

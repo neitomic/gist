@@ -34,12 +34,8 @@ pub fn render(kind: Kind, title: &str, slug: &str, body: &[u8]) -> Result<Vec<u8
 
 fn bytes_from_markdown(markdown: &str, title: &str) -> Result<Vec<u8>, String> {
     let cfg = config_toml(title);
-    markdown2pdf::parse_into_bytes(
-        markdown.to_string(),
-        ConfigSource::Embedded(&cfg),
-        None,
-    )
-    .map_err(|e| e.to_string())
+    markdown2pdf::parse_into_bytes(markdown.to_string(), ConfigSource::Embedded(&cfg), None)
+        .map_err(|e| e.to_string())
 }
 
 fn config_toml(title: &str) -> String {
@@ -210,11 +206,7 @@ fn render_image(title: &str, slug: &str, body: &[u8]) -> Result<Vec<u8>, String>
         let mut f = fs::File::create(&img).map_err(|e| e.to_string())?;
         f.write_all(body).map_err(|e| e.to_string())?;
         f.flush().map_err(|e| e.to_string())?;
-        let md = format!(
-            "# {}\n\n![]({})\n",
-            heading_text(title),
-            img.display()
-        );
+        let md = format!("# {}\n\n![]({})\n", heading_text(title), img.display());
         bytes_from_markdown(&md, title)
     })();
     let _ = fs::remove_dir_all(&dir);
@@ -241,10 +233,7 @@ mod tests {
         let pdf = render(Kind::Markdown, "Design", "design.md", md.as_bytes()).expect("pdf");
         assert!(pdf.starts_with(b"%PDF"), "not a PDF");
         let plain = inflate_pdf_streams(&pdf);
-        assert!(
-            plain.contains("/Outlines"),
-            "expected a native PDF outline"
-        );
+        assert!(plain.contains("/Outlines"), "expected a native PDF outline");
         assert!(plain.contains("/Title"));
         assert!(!plain.to_ascii_lowercase().contains("logout"));
     }
@@ -269,7 +258,10 @@ mod tests {
                 break;
             };
             let mut blob = &bytes[start..start + end_rel];
-            blob = blob.strip_suffix(b"\r\n").or_else(|| blob.strip_suffix(b"\n")).unwrap_or(blob);
+            blob = blob
+                .strip_suffix(b"\r\n")
+                .or_else(|| blob.strip_suffix(b"\n"))
+                .unwrap_or(blob);
             let mut dec = ZlibDecoder::new(blob);
             let mut out = Vec::new();
             if dec.read_to_end(&mut out).is_ok() {
