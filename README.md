@@ -38,14 +38,23 @@ gist env          # print export GIST_URL / GIST_TOKEN for a remote agent
 Teach a coding agent to use the inbox:
 
 ```bash
-gist agents                 # claude + codex + grok, in this project
+gist agents                 # claude + codex + grok, for this machine
 gist agents claude          # just one
-gist agents --global        # write under $HOME instead of the project
+gist agents --project       # write into this repository instead
 ```
 
-Claude and Grok get a skill file (`.claude/skills/gist/SKILL.md`, `.grok/skills/gist/SKILL.md`).
-Codex reads `AGENTS.md`, which is usually yours already, so gist keeps its guidance inside a
-`<!-- gist:begin -->` / `<!-- gist:end -->` block and rewrites only that block. Re-running is safe.
+Claude, Codex and Grok all read skills from the same layout, so each gets one file:
+
+```
+~/.claude/skills/gist/SKILL.md
+~/.codex/skills/gist/SKILL.md
+~/.grok/skills/gist/SKILL.md
+```
+
+`--project` writes the same three paths at the top of the current repository, wherever
+in the tree you run it. gist only ever owns `skills/gist/SKILL.md`; it does not touch
+`AGENTS.md`, `CLAUDE.md`, or anything else you wrote. Re-running overwrites just its
+own file.
 
 Credential order: `GIST_URL` + `GIST_TOKEN` in the environment, then `~/.config/gist/config`. If the file has `local_url`, this machine's `gist put` / `gist list` use that; `gist env` prints `url` for a remote agent.
 

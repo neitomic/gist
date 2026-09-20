@@ -49,9 +49,9 @@ pub enum Command {
         /// Which agents to set up (default: all)
         #[arg(value_enum)]
         targets: Vec<crate::agents::Target>,
-        /// Write to the home directory instead of this project
+        /// Write into this repository instead of the home directory
         #[arg(long, short)]
-        global: bool,
+        project: bool,
     },
 }
 
@@ -68,11 +68,11 @@ pub fn run(command: Command) -> Result<(), String> {
         Command::Env => print_env(),
         Command::Install => crate::service::install(),
         Command::Uninstall => crate::service::uninstall(),
-        Command::Agents { targets, global } => install_agents(&targets, global),
+        Command::Agents { targets, project } => install_agents(&targets, project),
     }
 }
 
-fn install_agents(targets: &[crate::agents::Target], global: bool) -> Result<(), String> {
+fn install_agents(targets: &[crate::agents::Target], project: bool) -> Result<(), String> {
     use crate::agents::Target;
     let chosen: Vec<Target> = if targets.is_empty() {
         Target::ALL.to_vec()
@@ -81,26 +81,45 @@ fn install_agents(targets: &[crate::agents::Target], global: bool) -> Result<(),
         v.dedup();
         v
     };
-    let root = if global {
-        crate::agents::home_dir()?
+    // Machine-wide by default: the inbox is per-machine, and a project copy
+    // would be committed into an unrelated repository.
+    let root = if project {
+        project_root()?
     } else {
-        std::env::current_dir().map_err(|e| format!("current directory: {e}"))?
+        crate::agents::home_dir()?
     };
+    let contents = crate::agents::skill_file();
     for t in chosen {
-        let path = t.path(&root, global);
+        let path = t.path(&root);
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
-        let contents = if t.is_skill() {
-            crate::agents::skill_file()
-        } else {
-            let existing = std::fs::read_to_string(&path).unwrap_or_default();
-            crate::agents::merge_block(&existing, &crate::agents::instructions())
-        };
-        std::fs::write(&path, contents).map_err(|e| format!("{}: {e}", path.display()))?;
+        std::fs::write(&path, &contents).map_err(|e| format!("{}: {e}", path.display()))?;
         println!("{:<7} {}", t.name(), path.display());
     }
     Ok(())
+}
+
+/// Skills belong at the top of the repository, not wherever the command
+/// happened to be run.
+fn project_root() -> Result<PathBuf, String> {
+    let cwd = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
+    Ok(git_toplevel().unwrap_or(cwd))
+}
+
+fn git_toplevel() -> Option<PathBuf> {
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if root.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(root))
 }
 
 fn require_config() -> Result<Config, String> {
