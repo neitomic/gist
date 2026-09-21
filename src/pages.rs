@@ -177,13 +177,54 @@ article.doc .copy-btn {
   color: var(--muted); border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; cursor: pointer;
 }
 article.doc .mermaid-wrap {
-  margin: 1.6em 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px;
-  background: var(--bg); overflow: auto; -webkit-overflow-scrolling: touch; text-align: center;
+  margin: 1.6em 0; padding: 0; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); overflow: hidden; text-align: center;
   max-width: 100%;
 }
 article.doc .mermaid-wrap svg { max-width: 100%; height: auto; }
-article.doc pre.mermaid { background: transparent; border: 0; text-align: left; }
+article.doc pre.mermaid {
+  background: transparent; border: 0; padding: 16px; margin: 0; overflow: visible;
+  text-align: left;
+}
 article.doc img, article.doc video, article.doc svg { max-width: 100%; height: auto; border-radius: 8px; }
+.mermaid-toolbar {
+  display: flex; justify-content: flex-end; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--chip);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+.mermaid-toolbar .mermaid-zoom-label {
+  min-width: 3.2em; text-align: center; font-size: 0.72rem; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.mermaid-btn {
+  border: 1px solid var(--line); background: var(--paper);
+  color: var(--muted); border-radius: 6px; padding: 3px 8px;
+  font-size: 0.72rem; cursor: pointer; line-height: 1.2;
+}
+.mermaid-btn:hover, .mermaid-btn:focus-visible { color: var(--ink); }
+.mermaid-viewport {
+  overflow: auto; max-height: min(70vh, 52rem); padding: 16px;
+  cursor: grab; touch-action: none; overscroll-behavior: contain;
+  text-align: center; -webkit-overflow-scrolling: touch;
+}
+.mermaid-viewport.is-panning { cursor: grabbing; }
+.mermaid-stage { display: inline-block; position: relative; text-align: left; vertical-align: top; }
+.mermaid-wrap.is-zoomable svg {
+  max-width: none !important; max-height: none !important;
+  height: auto; border-radius: 0; display: block;
+}
+.mermaid-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  background: color-mix(in srgb, var(--ink) 50%, transparent);
+}
+.mermaid-wrap.is-expanded {
+  position: fixed; inset: 4vh 4vw; z-index: 91; margin: 0; max-width: none;
+  display: flex; flex-direction: column; background: var(--paper);
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--ink) 25%, transparent);
+}
+.mermaid-wrap.is-expanded .mermaid-viewport { flex: 1; max-height: none; min-height: 0; }
+body.has-mermaid-overlay { overflow: hidden; }
 .table-wrap {
   width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain; margin: 1.6em 0;
@@ -309,7 +350,7 @@ label.theme-pick select {
     background: var(--paper); color: var(--ink);
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  header.app, footer.app, .actions, .pager, .copy-btn,
+  header.app, footer.app, .actions, .pager, .copy-btn, .mermaid-toolbar, .mermaid-backdrop,
   label.scheme-pick, label.theme-pick, .doc-head > a, nav.toc {
     display: none !important;
   }
@@ -332,6 +373,11 @@ label.theme-pick select {
   article.doc table, img.preview {
     break-inside: avoid;
   }
+  .mermaid-viewport { max-height: none; overflow: visible; padding: 0; cursor: default; }
+  article.doc .mermaid-wrap, .mermaid-wrap.is-expanded {
+    position: static; inset: auto; box-shadow: none; overflow: visible;
+  }
+  .mermaid-wrap.is-zoomable svg { max-width: 100% !important; transform: none !important; }
   embed.pdf, iframe.pdf { display: none; }
   @page { margin: 14mm; }
 }
@@ -356,6 +402,7 @@ label.theme-pick select {
   .pager { flex-wrap: wrap; }
   label.theme-pick { width: 100%; }
   label.theme-pick select { flex: 1; min-width: 0; }
+  .mermaid-wrap.is-expanded { inset: 8px; border-radius: 10px; }
 }
 "#;
 
@@ -968,6 +1015,18 @@ mod tests {
         };
         let html = document(&meta, Kind::Markdown, &Rendered::default(), None, None);
         assert!(!html.contains("id=\"toc-toggle\""));
+    }
+
+    #[test]
+    fn mermaid_diagrams_have_zoom_styles() {
+        let html = login(None, None);
+        assert!(html.contains(".mermaid-toolbar"));
+        assert!(html.contains(".mermaid-viewport"));
+        assert!(html.contains(".mermaid-wrap.is-zoomable svg {"));
+        assert!(html.contains(".mermaid-wrap.is-expanded"));
+        assert!(html.contains(".mermaid-backdrop"));
+        assert!(html.contains("body.has-mermaid-overlay { overflow: hidden; }"));
+        assert!(html.contains("touch-action: none"));
     }
 
     #[test]

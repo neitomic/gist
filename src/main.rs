@@ -1146,6 +1146,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn doc_js_zooms_mermaid() {
+        let dir = std::env::temp_dir().join(format!("gist-test-{}", nanoid::nanoid!(6)));
+        let app = test_app(dir);
+        let res = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/static/doc.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let js = body_string(res).await;
+        assert!(js.contains("enhanceMermaid"));
+        assert!(js.contains("mermaid-viewport"));
+        assert!(js.contains("is-expanded"));
+        assert!(js.contains("wireMermaidZoom"));
+    }
+
+    #[tokio::test]
     async fn theme_js_is_public() {
         let dir = std::env::temp_dir().join(format!("gist-test-{}", nanoid::nanoid!(6)));
         let app = test_app(dir);
