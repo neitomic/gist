@@ -140,9 +140,9 @@ curl -fsS -X POST "$GIST_URL/api/docs" \
 | `GET` | `/api/docs` | JSON list |
 | `GET` | `/health` | Liveness, no auth |
 
-Slugs are `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. No paths, no `..`.
+Slugs are `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. No paths, no `..`. A Vietnamese (or other accented) name is folded into that charset instead of rejected: `Tiếng Việt.md` is stored as `tieng-viet.md`, and the original title is kept.
 
-Markdown is converted to HTML with GitHub-flavored extras (tables, task lists, footnotes, alerts), a table of contents, and server-side syntax highlighting (theme picker on the doc page). The header has an appearance control (auto / light / dark) that is stored in the browser. Fenced `mermaid` blocks render in the browser. Uploaded HTML is passed through [ammonia](https://docs.rs/ammonia) so scripts and event handlers from the document do not run. Raw HTML/JS/SVG is served as `text/plain`.
+Markdown is converted to HTML with GitHub-flavored extras (tables, task lists, footnotes, alerts), a table of contents, and server-side syntax highlighting (theme picker on the doc page). The header has an appearance control (auto / light / dark) and a reading-font control (English / Tiếng Việt), both stored in the browser. Fenced `mermaid` blocks render in the browser. Uploaded HTML is passed through [ammonia](https://docs.rs/ammonia) so scripts and event handlers from the document do not run. Raw HTML/JS/SVG is served as `text/plain`.
 
 ## Environment
 

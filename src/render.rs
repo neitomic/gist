@@ -5,6 +5,7 @@ use pulldown_cmark::{
 };
 
 use crate::highlight;
+use crate::store::fold_latin;
 
 pub enum View {
     Html(Rendered),
@@ -303,9 +304,10 @@ fn heading_level(level: HeadingLevel) -> u8 {
 }
 
 fn slugify(s: &str) -> String {
+    let folded = fold_latin(s);
     let mut out = String::new();
     let mut dash = false;
-    for c in s.chars() {
+    for c in folded.chars() {
         if c.is_ascii_alphanumeric() {
             out.push(c.to_ascii_lowercase());
             dash = false;
@@ -671,5 +673,19 @@ graph TD
         };
         assert_eq!(out.toc[0].id, "same");
         assert_eq!(out.toc[1].id, "same-1");
+    }
+
+    #[test]
+    fn vietnamese_headings_get_ascii_ids() {
+        let md = "# Tiếng Việt\n\nĐường đi.\n\n## Ở nhà\n\n# Tiếng Việt\n";
+        let View::Html(out) = render_body(Kind::Markdown, md.as_bytes()) else {
+            panic!("expected html");
+        };
+        assert_eq!(out.toc[0].id, "tieng-viet");
+        assert_eq!(out.toc[1].id, "o-nha");
+        assert_eq!(out.toc[2].id, "tieng-viet-1");
+        assert!(out.html.contains("id=\"tieng-viet\""));
+        assert!(out.html.contains("id=\"o-nha\""));
+        assert!(out.html.contains("Tiếng Việt"));
     }
 }

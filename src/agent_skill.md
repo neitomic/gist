@@ -32,7 +32,7 @@ curl -fsS -X PUT "$GIST_URL/d/repo-name/topic.md" \
   --data-binary @FILE.md
 ```
 
-Slug: `[A-Za-z0-9][A-Za-z0-9._-]+`. Same project+slug overwrites. Prefer `.md`.
+Slug: `[A-Za-z0-9][A-Za-z0-9._-]+`. Same project+slug overwrites. Prefer `.md`. Accents are folded (`Tiếng Việt.md` → `tieng-viet.md`); put the real title in `X-Title` (plain ASCII, or percent-encoded UTF-8).
 
 ## Do not
 

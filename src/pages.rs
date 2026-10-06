@@ -14,6 +14,8 @@ const CSS: &str = r#"
   --paper: #fffdf8;
   --accent: #8a3b12;
   --chip: #ece4d6;
+  --sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --prose: "Iowan Old Style", Palatino, "Palatino Linotype", "Book Antiqua", Georgia, serif;
   color-scheme: light dark;
 }
 html[data-theme="light"] { color-scheme: light; }
@@ -38,10 +40,14 @@ html[data-theme="dark"] {
     --chip: #2a2520;
   }
 }
+html[data-font="vie"] {
+  --sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --prose: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; overflow-x: clip; }
 body {
-  font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font: 16px/1.5 var(--sans);
   background: var(--bg);
   color: var(--ink);
 }
@@ -132,11 +138,15 @@ article.doc {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 30px 40px 44px;
-  font-family: Iowan Old Style, Palatino, Palatino Linotype, Book Antiqua, Georgia, serif;
+  font-family: var(--prose);
   font-size: 1.05rem; line-height: 1.7;
   min-width: 0;
 }
 article.doc h1, article.doc h2, article.doc h3, article.doc h4 { line-height: 1.25; scroll-margin-top: 18px; }
+/* Tone marks sit above the cap height; the English line-heights clip them. */
+html[data-font="vie"] article.doc { line-height: 1.8; }
+html[data-font="vie"] article.doc :is(h1, h2, h3, h4),
+html[data-font="vie"] .doc-head h2 { line-height: 1.4; }
 article.doc h1 { font-size: 1.95rem; margin: 1.5em 0 0.6em; }
 article.doc h2 { font-size: 1.4rem; margin: 2em 0 0.7em; padding-bottom: 0.25em; border-bottom: 1px solid var(--line); }
 article.doc h3 { font-size: 1.15rem; margin: 1.7em 0 0.5em; }
@@ -190,7 +200,7 @@ article.doc img, article.doc video, article.doc svg { max-width: 100%; height: a
 .mermaid-toolbar {
   display: flex; justify-content: flex-end; align-items: center; gap: 4px; flex-wrap: wrap;
   padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--chip);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--sans);
 }
 .mermaid-toolbar .mermaid-zoom-label {
   min-width: 3.2em; text-align: center; font-size: 0.72rem; color: var(--muted);
@@ -232,7 +242,7 @@ body.has-mermaid-overlay { overflow: hidden; }
 }
 article.doc table {
   border-collapse: collapse; width: max-content; min-width: 100%; margin: 0;
-  font-size: 0.88rem; font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.88rem; font-family: var(--sans);
 }
 article.doc th, article.doc td {
   border: 1px solid var(--line); padding: 8px 10px; vertical-align: top;
@@ -283,7 +293,7 @@ article.doc > :first-child { margin-top: 0; }
 .doc-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-items: start; }
 .doc-layout > nav.toc {
   background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
-  padding: 10px 14px 14px; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.86rem;
+  padding: 10px 14px 14px; font-family: var(--sans); font-size: 0.86rem;
 }
 .doc-layout > nav.toc summary { cursor: pointer; color: var(--muted); font-weight: 650; letter-spacing: 0.02em; }
 .doc-layout > nav.toc ol { list-style: none; padding: 8px 0 0; margin: 0; }
@@ -433,15 +443,16 @@ fn shell_ex(
         format!(" class=\"{}\"", esc(body_class))
     };
     let theme_rev = asset_rev(include_str!("../static/theme.js"));
+    let font_css = font_faces_css();
     format!(
         r#"<!doctype html>
-<html lang="en" data-theme="auto" data-code-theme="auto">
+<html lang="en" data-theme="auto" data-code-theme="auto" data-font="eng">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>{title}</title>
-<style>{CSS}{extra_css}</style>
+<style>{font_css}{CSS}{extra_css}</style>
 <script src="/static/theme.js?v={theme_rev}"></script>
 {extra_head}
 </head>
@@ -449,6 +460,12 @@ fn shell_ex(
 <header class="app">
   <h1><a href="/">gist</a></h1>
   <div class="header-end">
+    <label class="scheme-pick">
+      <select id="font-face" aria-label="Reading font">
+        <option value="eng">English</option>
+        <option value="vie">Tiếng Việt</option>
+      </select>
+    </label>
     <label class="scheme-pick">
       <select id="color-scheme" aria-label="Color scheme">
         <option value="auto">Auto</option>
@@ -466,6 +483,7 @@ fn shell_ex(
 </body>
 </html>"#,
         title = esc(title),
+        font_css = font_css,
         CSS = CSS,
         extra_css = extra_css,
         extra_head = extra_head,
@@ -874,12 +892,125 @@ pub fn document(
 }
 
 fn asset_rev(body: &str) -> String {
+    asset_rev_bytes(body.as_bytes())
+}
+
+fn asset_rev_bytes(body: &[u8]) -> String {
     let mut h: u32 = 2166136261;
-    for b in body.as_bytes() {
+    for b in body {
         h ^= u32::from(*b);
         h = h.wrapping_mul(16777619);
     }
     format!("{h:08x}")
+}
+
+struct FontFile {
+    name: &'static str,
+    bytes: &'static [u8],
+    style: &'static str,
+    weight: u16,
+    unicode_range: &'static str,
+}
+
+const VI_RANGE: &str = "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB";
+const LAT_RANGE: &str = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD";
+
+static FONT_FILES: &[FontFile] = &[
+    FontFile {
+        name: "bevietnampro-400-vi.woff2",
+        bytes: include_bytes!("../static/fonts/bevietnampro-400-vi.woff2"),
+        style: "normal",
+        weight: 400,
+        unicode_range: VI_RANGE,
+    },
+    FontFile {
+        name: "bevietnampro-400.woff2",
+        bytes: include_bytes!("../static/fonts/bevietnampro-400.woff2"),
+        style: "normal",
+        weight: 400,
+        unicode_range: LAT_RANGE,
+    },
+    FontFile {
+        name: "bevietnampro-700-vi.woff2",
+        bytes: include_bytes!("../static/fonts/bevietnampro-700-vi.woff2"),
+        style: "normal",
+        weight: 700,
+        unicode_range: VI_RANGE,
+    },
+    FontFile {
+        name: "bevietnampro-700.woff2",
+        bytes: include_bytes!("../static/fonts/bevietnampro-700.woff2"),
+        style: "normal",
+        weight: 700,
+        unicode_range: LAT_RANGE,
+    },
+    FontFile {
+        name: "bevietnampro-400i-vi.woff2",
+        bytes: include_bytes!("../static/fonts/bevietnampro-400i-vi.woff2"),
+        style: "italic",
+        weight: 400,
+        unicode_range: VI_RANGE,
+    },
+    FontFile {
+        name: "bevietnampro-400i.woff2",
+        bytes: include_bytes!("../static/fonts/bevietnampro-400i.woff2"),
+        style: "italic",
+        weight: 400,
+        unicode_range: LAT_RANGE,
+    },
+    FontFile {
+        name: "bevietnampro-700i-vi.woff2",
+        bytes: include_bytes!("../static/fonts/bevietnampro-700i-vi.woff2"),
+        style: "italic",
+        weight: 700,
+        unicode_range: VI_RANGE,
+    },
+    FontFile {
+        name: "bevietnampro-700i.woff2",
+        bytes: include_bytes!("../static/fonts/bevietnampro-700i.woff2"),
+        style: "italic",
+        weight: 700,
+        unicode_range: LAT_RANGE,
+    },
+];
+
+pub fn font(name: &str) -> Option<&'static [u8]> {
+    FONT_FILES.iter().find(|f| f.name == name).map(|f| f.bytes)
+}
+
+pub fn font_license() -> &'static str {
+    include_str!("../static/fonts/OFL.txt")
+}
+
+fn font_faces_css() -> String {
+    let mut hash: u32 = 2166136261;
+    for file in FONT_FILES {
+        for b in file.bytes {
+            hash ^= u32::from(*b);
+            hash = hash.wrapping_mul(16777619);
+        }
+    }
+    let rev = format!("{hash:08x}");
+    let mut css = String::new();
+    for file in FONT_FILES {
+        css.push_str(&format!(
+            r#"@font-face {{
+  font-family: "Be Vietnam Pro";
+  font-style: {style};
+  font-weight: {weight};
+  font-display: swap;
+  src: url("/static/fonts/{name}?v={rev}") format("woff2");
+  unicode-range: {range};
+}}
+"#,
+            style = file.style,
+            weight = file.weight,
+            name = file.name,
+            rev = rev,
+            range = file.unicode_range,
+        ));
+    }
+    css
 }
 
 fn pdf_action(kind: Kind, meta: &Meta) -> String {
@@ -942,6 +1073,12 @@ mod tests {
         let html = login(None, None);
         assert!(html.contains("/static/theme.js"));
         assert!(html.contains("id=\"color-scheme\""));
+        assert!(html.contains("id=\"font-face\""));
+        assert!(html.contains("Tiếng Việt"));
+        assert!(html.contains("data-font=\"eng\""));
+        assert!(html.contains("html[data-font=\"vie\"]"));
+        assert!(html.contains("Be Vietnam Pro"));
+        assert!(html.contains("/static/fonts/bevietnampro-400-vi.woff2"));
         assert!(html.contains("html[data-theme=\"dark\"]"));
         assert!(html.contains("html[data-theme=\"auto\"]"));
     }

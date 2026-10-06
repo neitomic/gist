@@ -145,18 +145,18 @@ fn put(
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("upload");
-    let slug = slug.unwrap_or_else(|| name.to_string());
+    let raw_slug = slug.unwrap_or_else(|| name.to_string());
     let project = project.unwrap_or_else(infer_project);
     Store::validate_project(&project).map_err(|_| format!("invalid project '{project}'"))?;
-    Store::validate_slug(&slug).map_err(|_| {
-        format!("invalid slug '{slug}' (use letters, digits, '.', '_' or '-', max 128)")
+    let slug = Store::normalize_slug(&raw_slug).ok_or_else(|| {
+        format!("invalid slug '{raw_slug}' (use letters, digits, '.', '_' or '-', max 128)")
     })?;
     let ct = content_type_from_filename(name);
     let mut req = ureq::put(&format!("{}/d/{project}/{slug}", cfg.cli_url()))
         .set("Authorization", &format!("Bearer {}", cfg.token))
         .set("Content-Type", &ct);
     if let Some(title) = title.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        req = req.set("X-Title", title);
+        req = req.set("X-Title", &encode_header_value(title));
     }
     let resp = req
         .send_bytes(&bytes)
@@ -227,6 +227,23 @@ fn infer_project() -> String {
     crate::store::DEFAULT_PROJECT.to_string()
 }
 
+/// Non-ASCII header values are not legal on the wire. Percent-encode
+/// those bytes (and `%`) so the server can decode them back to UTF-8.
+fn encode_header_value(value: &str) -> String {
+    if value.is_ascii() {
+        return value.to_string();
+    }
+    let mut out = String::new();
+    for &b in value.as_bytes() {
+        if b.is_ascii() && b != b'%' {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 fn shell_single(s: &str) -> String {
     format!("'{}'", s.replace('\'', r#"'"'"'"#))
 }
@@ -259,5 +276,14 @@ mod tests {
     fn cli_subcommands_still_parse() {
         let cli = Cli::try_parse_from(["gist", "put", "notes.md"]).unwrap();
         assert!(matches!(cli.command, Command::Put { .. }));
+    }
+
+    #[test]
+    fn vietnamese_title_is_percent_encoded_for_the_header() {
+        assert_eq!(encode_header_value("Notes"), "Notes");
+        assert_eq!(
+            encode_header_value("Tiếng Việt"),
+            "Ti%E1%BA%BFng Vi%E1%BB%87t"
+        );
     }
 }

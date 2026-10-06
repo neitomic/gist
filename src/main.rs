@@ -144,6 +144,7 @@ fn router(app: App) -> Router {
         .route("/new", get(new_get))
         .route("/static/doc.js", get(doc_js))
         .route("/static/theme.js", get(theme_js))
+        .route("/static/fonts/{name}", get(static_font))
         .route("/d", post(create_multipart))
         .route("/d/{slug}", get(view_doc).put(put_doc))
         .route("/d/{slug}/raw", get(raw_doc))
@@ -298,6 +299,39 @@ async fn doc_js() -> impl IntoResponse {
 
 async fn theme_js() -> impl IntoResponse {
     js_file(include_str!("../static/theme.js"))
+}
+
+async fn static_font(Path(name): Path<String>) -> Response {
+    if name == "OFL.txt" {
+        return (
+            [
+                (
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/plain; charset=utf-8"),
+                ),
+                (
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("public, max-age=86400"),
+                ),
+            ],
+            pages::font_license(),
+        )
+            .into_response();
+    }
+    let Some(body) = pages::font(&name) else {
+        return (StatusCode::NOT_FOUND, "not found\n").into_response();
+    };
+    (
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static("font/woff2")),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=31536000, immutable"),
+            ),
+        ],
+        body,
+    )
+        .into_response()
 }
 
 async fn agent_card(State(app): State<App>, headers: HeaderMap) -> impl IntoResponse {
@@ -491,19 +525,21 @@ async fn save_doc(
     if body.len() > app.max_bytes {
         return (StatusCode::PAYLOAD_TOO_LARGE, "too large").into_response();
     }
-    if Store::validate_project(&project).is_err() || Store::validate_slug(&slug).is_err() {
+    if Store::validate_project(&project).is_err() {
         return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
     }
+    let raw_slug = slug;
+    let Some(slug) = Store::normalize_slug(&raw_slug) else {
+        return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
+    };
     let header_ct = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok());
-    let content_type = guess_content_type(&slug, header_ct);
+    let content_type = guess_content_type(&raw_slug, header_ct);
     let title = headers
         .get("x-title")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| guess_title(&slug, &content_type, &body));
+        .and_then(header_text)
+        .unwrap_or_else(|| guess_title(&raw_slug, &content_type, &body));
 
     match app
         .store
@@ -539,8 +575,7 @@ async fn api_create(
 ) -> Response {
     let slug = headers
         .get("x-slug")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
+        .and_then(header_text)
         .filter(|s| !s.is_empty())
         .unwrap_or_else(new_slug);
     let project = project_from_headers(&headers);
@@ -606,9 +641,14 @@ async fn create_multipart(
         return (StatusCode::PAYLOAD_TOO_LARGE, "too large").into_response();
     }
 
+    let raw_name = slug
+        .clone()
+        .or_else(|| filename.clone())
+        .unwrap_or_default();
     let slug = slug
         .or_else(|| filename.as_deref().and_then(safe_filename))
         .unwrap_or_else(new_slug);
+    let slug = Store::normalize_slug(&slug).unwrap_or_else(new_slug);
 
     let project = project
         .or_else(|| {
@@ -625,9 +665,13 @@ async fn create_multipart(
         return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
     }
 
-    let type_name = filename.as_deref().unwrap_or(slug.as_str());
+    let type_name = if raw_name.is_empty() {
+        slug.as_str()
+    } else {
+        raw_name.as_str()
+    };
     let ct = guess_content_type(type_name, content_type.as_deref());
-    let title = title.unwrap_or_else(|| guess_title(&slug, &ct, &body));
+    let title = title.unwrap_or_else(|| guess_title(type_name, &ct, &body));
     match app.store.put(&project, &slug, title, ct, &body).await {
         Ok(meta) => {
             if wants_html(&headers) {
@@ -1006,6 +1050,60 @@ fn store_error(e: StoreError) -> Response {
     }
 }
 
+fn header_text(value: &HeaderValue) -> Option<String> {
+    let raw = value
+        .to_str()
+        .ok()
+        .map(str::to_string)
+        .or_else(|| String::from_utf8(value.as_bytes().to_vec()).ok())?;
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let text = percent_decode_utf8(raw).unwrap_or_else(|| raw.to_string());
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+/// Decode `%XX` only when every percent sign is a valid escape.
+/// `100% done` is left alone; `Ti%E1%BA%BFng` becomes `Tiếng`.
+fn percent_decode_utf8(s: &str) -> Option<String> {
+    if !s.contains('%') {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                return None;
+            }
+            let hi = hex_val(bytes[i + 1])?;
+            let lo = hex_val(bytes[i + 2])?;
+            out.push((hi << 4) | lo);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn new_slug() -> String {
     let date = OffsetDateTime::now_utc()
         .date()
@@ -1018,11 +1116,7 @@ fn safe_filename(name: &str) -> Option<String> {
     let base = std::path::Path::new(name)
         .file_name()
         .and_then(|s| s.to_str())?;
-    if Store::validate_slug(base).is_ok() {
-        Some(base.to_string())
-    } else {
-        None
-    }
+    Store::normalize_slug(base)
 }
 
 fn wants_html(headers: &HeaderMap) -> bool {
@@ -1183,6 +1277,32 @@ mod tests {
         let js = body_string(res).await;
         assert!(js.contains("gist-theme"));
         assert!(js.contains("data-theme"));
+        assert!(js.contains("gist-font"));
+        assert!(js.contains("data-font"));
+    }
+
+    #[tokio::test]
+    async fn vietnamese_font_is_served() {
+        let dir = std::env::temp_dir().join(format!("gist-test-{}", nanoid::nanoid!(6)));
+        let app = test_app(dir);
+        let res = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/static/fonts/bevietnampro-400-vi.woff2")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(
+            res.headers().get(header::CONTENT_TYPE).unwrap(),
+            "font/woff2"
+        );
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(bytes.starts_with(b"wOF2"));
     }
 
     #[tokio::test]
@@ -1332,6 +1452,47 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn vietnamese_title_is_stored_under_an_ascii_slug() {
+        let dir = std::env::temp_dir().join(format!("gist-test-{}", nanoid::nanoid!(6)));
+        let app = test_app(dir.clone());
+        let res = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("PUT")
+                    .uri("/d/Ti%E1%BA%BFng%20Vi%E1%BB%87t.md")
+                    .header("authorization", "Bearer test-token-16chars")
+                    .header("content-type", "text/markdown")
+                    .header("x-title", "Ti%E1%BA%BFng Vi%E1%BB%87t")
+                    .body(Body::from("hello"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+        let json = body_string(res).await;
+        assert!(json.contains("\"slug\":\"tieng-viet.md\""), "{json}");
+        assert!(json.contains("\"title\":\"Tiếng Việt\""), "{json}");
+        assert!(json.contains("/d/inbox/tieng-viet.md"), "{json}");
+
+        let res = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/d/tieng-viet.md")
+                    .header("authorization", "Bearer test-token-16chars")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let html = body_string(res).await;
+        assert!(html.contains("Tiếng Việt"), "{html}");
 
         let _ = std::fs::remove_dir_all(dir);
     }

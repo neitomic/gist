@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use time::OffsetDateTime;
 use tokio::fs;
+use unicode_normalization::UnicodeNormalization;
 
 pub const DEFAULT_PROJECT: &str = "inbox";
 
@@ -102,6 +103,20 @@ impl Store {
 
     pub fn validate_project(project: &str) -> Result<(), StoreError> {
         Self::validate_name(project)
+    }
+
+    /// Keep a slug that is already URL-safe. Otherwise fold accents and
+    /// spaces (`Tiếng Việt.md` → `tieng-viet.md`). Path tricks (`..`, `/`)
+    /// stay rejected.
+    pub fn normalize_slug(name: &str) -> Option<String> {
+        let name = name.trim();
+        if Self::validate_slug(name).is_ok() {
+            return Some(name.to_string());
+        }
+        if name.contains("..") || name.contains('/') || name.contains('\\') {
+            return None;
+        }
+        ascii_slug(name)
     }
 
     fn nested_dir(&self, project: &str, slug: &str) -> Result<PathBuf, StoreError> {
@@ -256,6 +271,83 @@ impl Store {
     }
 }
 
+/// Strip Latin accents so a name can be a URL. `Đ`/`đ` do not decompose;
+/// everything else Vietnamese uses is a base letter plus combining marks.
+pub fn fold_latin(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.nfd() {
+        match c {
+            'Đ' | 'đ' => out.push('d'),
+            '\u{0300}'..='\u{036F}' => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// `Tiếng Việt.md` → `tieng-viet.md`. None when no URL-safe characters remain.
+pub fn ascii_slug(name: &str) -> Option<String> {
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." {
+        return None;
+    }
+    let (stem, ext) = split_simple_ext(name);
+    let folded = fold_latin(stem);
+    let mut slug = String::new();
+    let mut dash = false;
+    for c in folded.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+            dash = false;
+        } else if !slug.is_empty() && !dash {
+            slug.push('-');
+            dash = true;
+        }
+    }
+    let stem = slug.trim_matches('-');
+    if stem.is_empty() {
+        return None;
+    }
+    let ext = ext.map(|e| e.to_ascii_lowercase());
+    let ext_len = ext.as_ref().map(|e| e.len() + 1).unwrap_or(0);
+    if ext_len >= 128 {
+        return None;
+    }
+    let stem = truncate_bytes(stem, 128 - ext_len).trim_matches('-');
+    if stem.is_empty() {
+        return None;
+    }
+    let full = match ext {
+        Some(ext) => format!("{stem}.{ext}"),
+        None => stem.to_string(),
+    };
+    Store::validate_slug(&full).ok().map(|_| full)
+}
+
+fn split_simple_ext(name: &str) -> (&str, Option<&str>) {
+    match name.rsplit_once('.') {
+        Some((stem, ext))
+            if !stem.is_empty()
+                && (1..=8).contains(&ext.len())
+                && ext.chars().all(|c| c.is_ascii_alphanumeric()) =>
+        {
+            (stem, Some(ext))
+        }
+        _ => (name, None),
+    }
+}
+
+fn truncate_bytes(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 pub fn guess_title(slug: &str, content_type: &str, body: &[u8]) -> String {
     if content_type.contains("markdown") || slug.ends_with(".md") {
         if let Ok(text) = std::str::from_utf8(body) {
@@ -351,6 +443,24 @@ mod tests {
         assert!(Store::validate_slug("").is_err());
         assert!(Store::validate_project("gist").is_ok());
         assert!(Store::validate_project("my-app").is_ok());
+        assert!(Store::validate_slug("Tiếng Việt.md").is_err());
+    }
+
+    #[test]
+    fn vietnamese_names_fold_into_url_slugs() {
+        assert_eq!(
+            Store::normalize_slug("Tiếng Việt.md").as_deref(),
+            Some("tieng-viet.md")
+        );
+        assert_eq!(ascii_slug("Đường đi.md").as_deref(), Some("duong-di.md"));
+        assert_eq!(ascii_slug("Ở nhà.md").as_deref(), Some("o-nha.md"));
+        assert_eq!(
+            Store::normalize_slug("Notes.md").as_deref(),
+            Some("Notes.md")
+        );
+        assert_eq!(ascii_slug("!!!").as_deref(), None);
+        assert_eq!(Store::normalize_slug("../etc"), None);
+        assert_eq!(Store::normalize_slug("foo/bar.md"), None);
     }
 
     #[test]

@@ -21,6 +21,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 subtle = "2"
 time = { version = "0.3", features = ["formatting", "macros", "parsing", "serde"] }
+unicode-normalization = "0.1.25"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "rt-multi-thread", "signal"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["limit", "trace"] }

@@ -33,7 +33,7 @@ curl -fsS -X PUT "$GIST_URL/d/$PROJECT/$SLUG" \
 Or: `gist put FILE --project "$PROJECT" --slug "$SLUG" --title "$TITLE"`
 
 - Project: same charset as slug. Group related docs (`gist`, `mdprev`). Default `inbox` if omitted (`PUT /d/$SLUG` or `X-Project`). CLI default is `$GIST_PROJECT`, else the git repo name, else `inbox`.
-- Slug: `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Prefer `topic.md`. Same project+slug overwrites.
+- Slug: `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Prefer `topic.md`. Same project+slug overwrites. A name with accents is folded into that charset (`Tiếng Việt.md` → `tieng-viet.md`); the display title is kept. `X-Title` may be plain ASCII or percent-encoded UTF-8.
 - Types: `text/markdown`, `text/html`, `text/plain`, `application/json`, images, PDF.
 - Prefer markdown for anything the human will read.
 - Response JSON has `url` — that is what you give the human.
