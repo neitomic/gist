@@ -13,9 +13,10 @@ const CSS: &str = r#"
   --line: #ddd4c6;
   --paper: #fffdf8;
   --accent: #8a3b12;
+  --link: #1a4f9c;
   --chip: #ece4d6;
-  --sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --prose: "Iowan Old Style", Palatino, "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --prose: var(--sans);
   color-scheme: light dark;
 }
 html[data-theme="light"] { color-scheme: light; }
@@ -27,6 +28,7 @@ html[data-theme="dark"] {
   --line: #3a342d;
   --paper: #1c1916;
   --accent: #e08a55;
+  --link: #c5daf8;
   --chip: #2a2520;
 }
 @media (prefers-color-scheme: dark) {
@@ -37,6 +39,7 @@ html[data-theme="dark"] {
     --line: #3a342d;
     --paper: #1c1916;
     --accent: #e08a55;
+    --link: #c5daf8;
     --chip: #2a2520;
   }
 }
@@ -54,7 +57,7 @@ body {
 a { color: var(--accent); }
 header.app, footer.app, main { width: min(840px, calc(100% - 32px)); margin: 0 auto; min-width: 0; }
 body.doc-page header.app, body.doc-page footer.app, body.doc-page main {
-  width: min(1180px, calc(100% - 32px));
+  width: min(40rem, calc(100% - 32px));
 }
 header.app {
   display: flex; align-items: center; justify-content: space-between;
@@ -131,33 +134,39 @@ ul.docs .title { font-weight: 650; }
 ul.docs .sub { color: var(--muted); font-size: 0.88rem; }
 .when { color: var(--muted); font-size: 0.82rem; white-space: nowrap; }
 article.doc {
-  /* ~70 characters of body text. A length, not `ch`: `ch` resolves against
-     each element's own font-size, so headings would get a far wider cap. */
-  --measure: 41rem;
+  /* The card is the measure, so headings, prose, code, and tables share
+     one left edge. 40rem at 16px with the padding below is about 70 characters. */
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 30px 40px 44px;
+  padding: 28px 32px 40px;
   font-family: var(--prose);
-  font-size: 1.05rem; line-height: 1.7;
+  font-size: 1rem; line-height: 1.65;
+  max-width: 40rem;
   min-width: 0;
 }
-article.doc h1, article.doc h2, article.doc h3, article.doc h4 { line-height: 1.25; scroll-margin-top: 18px; }
+article.doc h1, article.doc h2, article.doc h3, article.doc h4 {
+  line-height: 1.3; font-weight: 640; letter-spacing: -0.02em; scroll-margin-top: 18px;
+}
 /* Tone marks sit above the cap height; the English line-heights clip them. */
-html[data-font="vie"] article.doc { line-height: 1.8; }
+html[data-font="vie"] article.doc { line-height: 1.75; }
 html[data-font="vie"] article.doc :is(h1, h2, h3, h4),
-html[data-font="vie"] .doc-head h2 { line-height: 1.4; }
-article.doc h1 { font-size: 1.95rem; margin: 1.5em 0 0.6em; }
-article.doc h2 { font-size: 1.4rem; margin: 2em 0 0.7em; padding-bottom: 0.25em; border-bottom: 1px solid var(--line); }
-article.doc h3 { font-size: 1.15rem; margin: 1.7em 0 0.5em; }
-article.doc h4 { font-size: 1.02rem; margin: 1.45em 0 0.4em; letter-spacing: 0.01em; }
-article.doc p { margin: 1.1em 0; overflow-wrap: anywhere; word-break: break-word; }
-article.doc ul, article.doc ol { margin: 1.1em 0; padding-left: 1.5em; }
-article.doc li { margin: 0.4em 0; }
-article.doc li > ul, article.doc li > ol { margin: 0.4em 0; }
-article.doc li > p { margin: 0.5em 0; }
-article.doc li, article.doc dd { overflow-wrap: anywhere; word-break: break-word; }
-article.doc a { text-underline-offset: 2px; overflow-wrap: anywhere; word-break: break-word; }
+html[data-font="vie"] .doc-head h2 { line-height: 1.4; letter-spacing: 0; }
+article.doc h1 { font-size: 1.65rem; margin: 0 0 0.55em; }
+article.doc h2 { font-size: 1.28rem; margin: 1.7em 0 0.45em; }
+article.doc h3 { font-size: 1.1rem; margin: 1.45em 0 0.35em; }
+article.doc h4 { font-size: 1.02rem; margin: 1.25em 0 0.3em; letter-spacing: -0.01em; }
+article.doc :is(h1, h2, h3, h4) + :is(p, ul, ol, blockquote, .table-wrap, pre) { margin-top: 0.45em; }
+article.doc p { margin: 0.8em 0; overflow-wrap: break-word; text-wrap: pretty; }
+article.doc ul, article.doc ol { margin: 0.7em 0; padding-left: 1.4em; }
+article.doc li { margin: 0.28em 0; }
+article.doc li > ul, article.doc li > ol { margin: 0.25em 0; }
+article.doc li > p { margin: 0.35em 0; }
+article.doc li, article.doc dd { overflow-wrap: break-word; text-wrap: pretty; }
+article.doc a {
+  color: var(--link); text-underline-offset: 0.15em; text-decoration-thickness: 1px;
+  overflow-wrap: break-word;
+}
 article.doc hr { border: 0; border-top: 1px solid var(--line); margin: 2.6em 0; }
 article.doc pre, article.doc code, pre.plain, .code-meta { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88rem; }
 article.doc :not(pre) > code {
@@ -237,22 +246,25 @@ article.doc img, article.doc video, article.doc svg { max-width: 100%; height: a
 body.has-mermaid-overlay { overflow: hidden; }
 .table-wrap {
   width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain; margin: 1.6em 0;
-  border: 1px solid var(--line); border-radius: 8px; background: var(--paper);
+  overscroll-behavior-x: contain; margin: 1.15em 0;
+  border: 0; border-radius: 0; background: transparent;
 }
 article.doc table {
-  border-collapse: collapse; width: max-content; min-width: 100%; margin: 0;
-  font-size: 0.88rem; font-family: var(--sans);
+  border-collapse: collapse; width: 100%; margin: 0;
+  font-size: 0.94rem; line-height: 1.5; font-family: var(--prose);
 }
 article.doc th, article.doc td {
-  border: 1px solid var(--line); padding: 8px 10px; vertical-align: top;
-  overflow-wrap: anywhere; word-break: break-word; max-width: 16rem;
+  border: 0; border-bottom: 1px solid var(--line); padding: 8px 16px 8px 0;
+  vertical-align: top; overflow-wrap: break-word;
 }
-article.doc th { background: var(--chip); text-align: left; }
-article.doc tr:nth-child(even) td { background: color-mix(in srgb, var(--chip) 55%, transparent); }
+article.doc th:last-child, article.doc td:last-child { padding-right: 0; }
+article.doc th {
+  background: transparent; text-align: left; font-weight: 640; color: var(--muted);
+  font-size: 0.78rem; letter-spacing: 0.01em;
+}
 article.doc blockquote {
-  margin: 1.5em 0; padding: 0.2em 0.8em 0.2em 1em; border-left: 3px solid var(--line);
-  color: var(--muted); min-width: 0; overflow-wrap: anywhere; word-break: break-word;
+  margin: 1.15em 0; padding: 0.1em 0 0.1em 0.9em; border-left: 3px solid var(--line);
+  color: var(--muted); min-width: 0; overflow-wrap: break-word;
 }
 article.doc blockquote.markdown-alert-note,
 article.doc blockquote.markdown-alert-tip,
@@ -276,19 +288,6 @@ article.doc kbd {
 article.doc dt { font-weight: 650; margin-top: 0.8em; }
 article.doc dd { margin-left: 1.2em; color: var(--muted); }
 article.doc .footnotes { margin-top: 2.2em; padding-top: 0.8em; border-top: 1px solid var(--line); font-size: 0.92em; color: var(--muted); }
-/* Hold prose to a readable measure; wide blocks keep the full card width.
-   Must come after the element rules above, whose margin shorthands would
-   otherwise reset the auto side margins that centre the text column. */
-article.doc > * { max-width: var(--measure); }
-/* Centre that column. `article.doc > *` is less specific than `article.doc p`,
-   so the elements are named here to win against their margin shorthands. */
-article.doc > :is(h1, h2, h3, h4, h5, h6, p, ul, ol, dl, blockquote, details) {
-  margin-left: auto; margin-right: auto;
-}
-article.doc > .table-wrap, article.doc > .code-block, article.doc > .mermaid-wrap,
-article.doc > pre, article.doc > figure, article.doc > img, article.doc > hr {
-  max-width: 100%;
-}
 article.doc > :first-child { margin-top: 0; }
 .doc-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-items: start; }
 .doc-layout > nav.toc {
@@ -306,7 +305,12 @@ article.doc > :first-child { margin-top: 0; }
 .doc-layout > nav.toc li.l3 a { padding-left: 18px; }
 .doc-layout > nav.toc li.l4 a, .doc-layout > nav.toc li.l5 a, .doc-layout > nav.toc li.l6 a { padding-left: 28px; }
 @media (min-width: 960px) {
-  .doc-layout.has-toc { grid-template-columns: 230px minmax(0, 1fr); }
+  .doc-layout.has-toc { grid-template-columns: 220px minmax(0, 40rem); }
+  body.doc-page:has(.doc-layout.has-toc) header.app,
+  body.doc-page:has(.doc-layout.has-toc) footer.app,
+  body.doc-page:has(.doc-layout.has-toc) main {
+    width: min(calc(40rem + 242px), calc(100% - 32px));
+  }
   .doc-layout > nav.toc { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
   .doc-layout > nav.toc summary { pointer-events: none; }
 }
@@ -324,8 +328,10 @@ html[data-toc="off"] .doc-layout > nav.toc,
 .doc-head:has(#toc-toggle:not(:checked)) + .doc-layout > nav.toc { display: none; }
 html[data-toc="off"] .doc-layout.has-toc,
 .doc-head:has(#toc-toggle:not(:checked)) + .doc-layout.has-toc { grid-template-columns: minmax(0, 1fr); }
-.doc-head { margin-bottom: 18px; }
-.doc-head h2 { margin: 8px 0 6px; font-size: 1.6rem; }
+.doc-head { margin-bottom: 16px; }
+.doc-head h2 { margin: 4px 0; font-size: 1.2rem; font-weight: 640; letter-spacing: -0.02em; }
+.doc-head:has(#toc-toggle:not(:checked)),
+html[data-toc="off"] .doc-head { max-width: 40rem; }
 .meta-line { font-size: 0.88rem; color: var(--muted); margin: 0 0 12px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .pager { display: flex; justify-content: space-between; gap: 12px; margin: 22px 0 0; font-size: 0.9rem; }
@@ -372,7 +378,7 @@ label.theme-pick select {
   .doc-head { margin: 0 0 10px; }
   .doc-head h2 { font-size: 1.35rem; margin: 0 0 4px; }
   article.doc {
-    border: 0; border-radius: 0; padding: 0; background: transparent;
+    border: 0; border-radius: 0; padding: 0; background: transparent; max-width: none;
   }
   article.doc > * { max-width: none; }
   article.doc pre, pre.plain, article.doc .code-block pre.syn-code {
@@ -399,12 +405,12 @@ label.theme-pick select {
   header.app { padding: 16px 0 12px; gap: 10px; flex-wrap: wrap; }
   header.app nav { gap: 12px; }
   header.app .header-end { gap: 12px; }
-  article.doc { padding: 20px 16px 30px; font-size: 1rem; border-radius: 10px; }
-  article.doc h1 { font-size: 1.45rem; }
-  article.doc h2 { font-size: 1.2rem; }
-  article.doc h3 { font-size: 1.08rem; }
-  article.doc th, article.doc td { max-width: 11rem; padding: 6px 8px; font-size: 0.82rem; }
-  .doc-head h2 { font-size: 1.28rem; overflow-wrap: anywhere; }
+  article.doc { padding: 20px 16px 28px; font-size: 1rem; border-radius: 10px; }
+  article.doc h1 { font-size: 1.4rem; }
+  article.doc h2 { font-size: 1.18rem; }
+  article.doc h3 { font-size: 1.05rem; }
+  article.doc th, article.doc td { padding: 7px 10px 7px 0; font-size: 0.9rem; }
+  .doc-head h2 { font-size: 1.12rem; overflow-wrap: anywhere; }
   .meta-line { overflow-wrap: anywhere; }
   .toolbar form { min-width: 0; width: 100%; }
   ul.docs a.row-link { grid-template-columns: 44px 1fr; }
@@ -1167,17 +1173,14 @@ mod tests {
     }
 
     #[test]
-    fn prose_is_held_to_a_measure_but_wide_blocks_are_not() {
+    fn prose_column_is_one_measure() {
         let html = login(None, None);
-        assert!(html.contains(
-            "article.doc > * { max-width: var(--measure); }
-/* Centre that column. `article.doc > *` is less specific than `article.doc p`,
-   so the elements are named here to win against their margin shorthands. */
-article.doc > :is(h1, h2, h3, h4, h5, h6, p, ul, ol, dl, blockquote, details) {
-  margin-left: auto; margin-right: auto;
-}"
-        ));
-        assert!(html.contains("article.doc > .table-wrap"));
+        assert!(html.contains("font-size: 1rem; line-height: 1.65;"));
+        assert!(html.contains("max-width: 40rem;"));
+        assert!(html.contains("article.doc h2 { font-size: 1.28rem; margin: 1.7em 0 0.45em; }"));
+        assert!(html.contains("color: var(--link);"));
+        assert!(!html.contains("margin-left: auto; margin-right: auto;"));
+        assert!(!html.contains("--measure"));
         assert!(html.contains("article.doc > * { max-width: none; }"));
     }
 
