@@ -1458,6 +1458,9 @@ mod tests {
         assert!(js.contains("mermaid-viewport"));
         assert!(js.contains("is-expanded"));
         assert!(js.contains("wireMermaidZoom"));
+        assert!(js.contains("wireImageZoom"));
+        assert!(js.contains("img-stage"));
+        assert!(js.contains("is-zoomed"));
     }
 
     #[tokio::test]

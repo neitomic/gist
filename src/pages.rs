@@ -206,6 +206,28 @@ article.doc pre.mermaid {
   text-align: left;
 }
 article.doc img, article.doc video, article.doc audio, article.doc svg { max-width: 100%; height: auto; border-radius: 8px; }
+article.doc img { cursor: zoom-in; }
+.img-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+.img-stage {
+  position: fixed; inset: 0; z-index: 91; overflow: auto;
+  padding: 4vh 4vw; box-sizing: border-box;
+}
+.img-stage img {
+  display: block; margin: 0 auto; max-width: 100%; height: auto;
+  border-radius: 8px; cursor: zoom-in;
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--ink) 28%, transparent);
+}
+.img-stage img.is-zoomed { max-width: none; cursor: zoom-out; }
+.img-zoom-close {
+  position: fixed; z-index: 92; top: 16px; right: 16px;
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  font: inherit; font-size: 0.85rem;
+}
+body.has-img-overlay { overflow: hidden; }
 article.doc audio { width: 100%; }
 .mermaid-toolbar {
   display: flex; justify-content: flex-end; align-items: center; gap: 4px; flex-wrap: wrap;
@@ -368,6 +390,7 @@ label.theme-pick select {
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   header.app, footer.app, .actions, .pager, .copy-btn, .mermaid-toolbar, .mermaid-backdrop,
+  .img-backdrop, .img-stage, .img-zoom-close,
   label.scheme-pick, label.theme-pick, .doc-head > a, nav.toc {
     display: none !important;
   }
@@ -1175,6 +1198,9 @@ mod tests {
         assert!(html.contains(".mermaid-backdrop"));
         assert!(html.contains("body.has-mermaid-overlay { overflow: hidden; }"));
         assert!(html.contains("touch-action: none"));
+        assert!(html.contains("article.doc img { cursor: zoom-in; }"));
+        assert!(html.contains(".img-stage img.is-zoomed"));
+        assert!(html.contains("body.has-img-overlay { overflow: hidden; }"));
     }
 
     #[test]

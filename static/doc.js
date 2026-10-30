@@ -38,6 +38,7 @@
     addCopyButtons();
     watchToc();
     loadMermaid();
+    wireImageZoom();
   });
 
   var expandedMermaid = null;
@@ -109,6 +110,88 @@
       var el = document.getElementById(id);
       if (el) observer.observe(el);
     });
+  }
+
+  var imageZoom = null;
+
+  // A click opens the picture to the window. Another click shows it at its
+  // own pixel size when that is larger, so a screenshot can be read. Escape,
+  // Close, or the dimmed margin puts it back.
+  function wireImageZoom() {
+    document.querySelectorAll("article.doc img").forEach(function (img) {
+      img.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openImage(img);
+      });
+    });
+  }
+
+  function openImage(img) {
+    closeImage();
+    var back = document.createElement("div");
+    back.className = "img-backdrop";
+    var stage = document.createElement("div");
+    stage.className = "img-stage";
+    var view = document.createElement("img");
+    view.src = img.currentSrc || img.src;
+    view.alt = img.alt || "";
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "img-zoom-close";
+    close.textContent = "Close";
+    var zoomed = false;
+    function fit() {
+      zoomed = false;
+      view.classList.remove("is-zoomed");
+      view.style.width = "";
+    }
+    function enlarge() {
+      var shown = view.getBoundingClientRect().width || view.clientWidth;
+      var natural = view.naturalWidth || 0;
+      var target = natural > shown + 8 ? natural : Math.round((shown || natural) * 2);
+      if (!target) return;
+      zoomed = true;
+      view.classList.add("is-zoomed");
+      view.style.width = target + "px";
+    }
+    view.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (zoomed) fit();
+      else enlarge();
+    });
+    function shut(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      closeImage();
+    }
+    back.addEventListener("click", shut);
+    stage.addEventListener("click", shut);
+    close.addEventListener("click", shut);
+    document.body.appendChild(back);
+    document.body.appendChild(stage);
+    stage.appendChild(view);
+    document.body.appendChild(close);
+    document.body.classList.add("has-img-overlay");
+    function onKey(e) {
+      if (e.key === "Escape") closeImage();
+    }
+    document.addEventListener("keydown", onKey);
+    imageZoom = { back: back, stage: stage, close: close, onKey: onKey };
+  }
+
+  function closeImage() {
+    if (!imageZoom) return;
+    document.removeEventListener("keydown", imageZoom.onKey);
+    ["back", "stage", "close"].forEach(function (key) {
+      var node = imageZoom[key];
+      if (node && node.parentNode) node.parentNode.removeChild(node);
+    });
+    document.body.classList.remove("has-img-overlay");
+    imageZoom = null;
   }
 
   function loadMermaid() {
