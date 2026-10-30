@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 use tokio::fs;
 use unicode_normalization::UnicodeNormalization;
@@ -269,6 +269,178 @@ impl Store {
         out.sort_by(|a, b| b.updated.cmp(&a.updated));
         Ok(out)
     }
+
+    /// Directory of media files for a document, when it exists.
+    pub async fn media_dir(&self, project: &str, slug: &str) -> Option<PathBuf> {
+        let dir = self.dir(project, slug).await.ok()?.join("media");
+        if tokio::fs::try_exists(&dir).await.unwrap_or(false) {
+            Some(dir)
+        } else {
+            None
+        }
+    }
+
+    pub async fn put_media(
+        &self,
+        project: &str,
+        slug: &str,
+        rel: &str,
+        body: &[u8],
+    ) -> Result<String, StoreError> {
+        let rel = crate::media::normalize_media_rel(rel).ok_or(StoreError::BadSlug)?;
+        let doc = self.require_doc(project, slug).await?;
+        let (root, path) = media_file(&doc, &rel)?;
+        fs::create_dir_all(&root).await?;
+        ensure_media_parent(&root, &path).await?;
+        let tmp = tmp_sibling(&path);
+        fs::write(&tmp, body).await?;
+        fs::rename(&tmp, &path).await?;
+        Ok(rel)
+    }
+
+    pub async fn get_media(
+        &self,
+        project: &str,
+        slug: &str,
+        rel: &str,
+    ) -> Result<(String, Vec<u8>), StoreError> {
+        let rel = crate::media::normalize_media_rel(rel).ok_or(StoreError::BadSlug)?;
+        let doc = self.require_doc(project, slug).await?;
+        let (root, path) = media_file(&doc, &rel)?;
+        let canon = contained_file(&root, &path).await?;
+        Ok((rel, fs::read(canon).await?))
+    }
+
+    pub async fn delete_media(
+        &self,
+        project: &str,
+        slug: &str,
+        rel: &str,
+    ) -> Result<(), StoreError> {
+        let rel = crate::media::normalize_media_rel(rel).ok_or(StoreError::BadSlug)?;
+        let doc = self.require_doc(project, slug).await?;
+        let (_root, path) = media_file(&doc, &rel)?;
+        match fs::remove_file(&path).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(StoreError::NotFound),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub async fn list_media(&self, project: &str, slug: &str) -> Result<Vec<String>, StoreError> {
+        let doc = self.require_doc(project, slug).await?;
+        let root = doc.join("media");
+        let mut out = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            let mut entries = match fs::read_dir(&dir).await {
+                Ok(entries) => entries,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound && dir == root => {
+                    return Ok(out);
+                }
+                Err(e) => return Err(e.into()),
+            };
+            while let Some(entry) = entries.next_entry().await? {
+                let file_type = entry.file_type().await?;
+                if file_type.is_symlink() {
+                    continue;
+                }
+                let path = entry.path();
+                if file_type.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if !file_type.is_file() {
+                    continue;
+                }
+                let Ok(rel) = path.strip_prefix(&root) else {
+                    continue;
+                };
+                let rel = rel.to_string_lossy().replace('\\', "/");
+                if let Some(rel) = crate::media::normalize_media_rel(&rel) {
+                    out.push(rel);
+                }
+            }
+        }
+        out.sort();
+        Ok(out)
+    }
+
+    pub async fn clear_media(&self, project: &str, slug: &str) -> Result<(), StoreError> {
+        let doc = self.require_doc(project, slug).await?;
+        let dir = doc.join("media");
+        match fs::remove_dir_all(&dir).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    async fn require_doc(&self, project: &str, slug: &str) -> Result<PathBuf, StoreError> {
+        let dir = self.dir(project, slug).await?;
+        if !tokio::fs::try_exists(dir.join("meta.json"))
+            .await
+            .unwrap_or(false)
+        {
+            return Err(StoreError::NotFound);
+        }
+        Ok(dir)
+    }
+}
+
+fn media_file(doc_dir: &Path, rel: &str) -> Result<(PathBuf, PathBuf), StoreError> {
+    let root = doc_dir.join("media");
+    let mut path = root.clone();
+    for seg in rel.split('/') {
+        if seg.is_empty() || seg == "." || seg == ".." {
+            return Err(StoreError::BadSlug);
+        }
+        path.push(seg);
+    }
+    Ok((root, path))
+}
+
+fn tmp_sibling(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".tmp");
+    path.with_file_name(name)
+}
+
+/// Parent must stay inside the media directory after symlink resolution.
+async fn ensure_media_parent(root: &Path, path: &Path) -> Result<(), StoreError> {
+    let Some(parent) = path.parent() else {
+        return Err(StoreError::BadSlug);
+    };
+    fs::create_dir_all(parent).await?;
+    let canon_root = fs::canonicalize(root).await?;
+    let canon_parent = fs::canonicalize(parent).await?;
+    if !canon_parent.starts_with(&canon_root) {
+        return Err(StoreError::BadSlug);
+    }
+    if let Ok(meta) = fs::symlink_metadata(path).await {
+        if meta.file_type().is_symlink() {
+            return Err(StoreError::BadSlug);
+        }
+    }
+    Ok(())
+}
+
+async fn contained_file(root: &Path, path: &Path) -> Result<PathBuf, StoreError> {
+    let canon_root = match fs::canonicalize(root).await {
+        Ok(p) => p,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(StoreError::NotFound),
+        Err(e) => return Err(e.into()),
+    };
+    let canon = match fs::canonicalize(path).await {
+        Ok(p) => p,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(StoreError::NotFound),
+        Err(e) => return Err(e.into()),
+    };
+    if canon.starts_with(&canon_root) {
+        Ok(canon)
+    } else {
+        Err(StoreError::BadSlug)
+    }
 }
 
 /// Strip Latin accents so a name can be a URL. `Đ`/`đ` do not decompose;
@@ -524,5 +696,51 @@ mod tests {
             guess_content_type("notes", None),
             "application/octet-stream"
         );
+    }
+
+    #[tokio::test]
+    async fn media_roundtrip_stays_inside_the_document() {
+        let dir = std::env::temp_dir().join(format!("gist-store-{}", nanoid::nanoid!(6)));
+        let store = Store::new(dir.clone());
+        store
+            .put(
+                "inbox",
+                "notes.md",
+                "Notes".into(),
+                "text/markdown".into(),
+                b"# Hi",
+            )
+            .await
+            .unwrap();
+        let rel = store
+            .put_media("inbox", "notes.md", "images/a.png", b"png-bytes")
+            .await
+            .unwrap();
+        assert_eq!(rel, "images/a.png");
+        let (got_rel, bytes) = store
+            .get_media("inbox", "notes.md", "images/a.png")
+            .await
+            .unwrap();
+        assert_eq!(got_rel, "images/a.png");
+        assert_eq!(bytes, b"png-bytes");
+        assert_eq!(
+            store.list_media("inbox", "notes.md").await.unwrap(),
+            vec!["images/a.png".to_string()]
+        );
+        assert!(store
+            .put_media("inbox", "notes.md", "../secret.png", b"no")
+            .await
+            .is_err());
+        assert!(store
+            .put_media("inbox", "missing.md", "a.png", b"no")
+            .await
+            .is_err());
+        store.clear_media("inbox", "notes.md").await.unwrap();
+        assert!(store
+            .list_media("inbox", "notes.md")
+            .await
+            .unwrap()
+            .is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

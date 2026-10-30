@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use pulldown_cmark::{
@@ -143,12 +144,22 @@ impl Kind {
     ];
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn render_body(kind: Kind, body: &[u8]) -> View {
+    render_document(kind, body, None)
+}
+
+/// `media_prefix` is `/d/{project}/{slug}/media`. Relative image, audio, and
+/// video URLs in the page are rewritten onto it. Other links stay as written.
+pub fn render_document(kind: Kind, body: &[u8], media_prefix: Option<&str>) -> View {
     match kind {
-        Kind::Markdown => View::Html(render_markdown(&String::from_utf8_lossy(body))),
+        Kind::Markdown => View::Html(render_markdown(
+            &String::from_utf8_lossy(body),
+            media_prefix,
+        )),
         Kind::Html => {
             let text = String::from_utf8_lossy(body);
-            let html = wrap_tables(sanitize(&text));
+            let html = wrap_tables(sanitize(&text, media_prefix));
             let (html, toc) = extract_html_toc(html);
             View::Html(Rendered {
                 html,
@@ -179,13 +190,13 @@ fn md_options() -> Options {
     options
 }
 
-fn render_markdown(text: &str) -> Rendered {
+fn render_markdown(text: &str, media_prefix: Option<&str>) -> Rendered {
     let events: Vec<Event> = Parser::new_ext(text, md_options()).collect();
     let (events, toc, has_mermaid, has_code) = rewrite(events);
     let mut html_out = String::new();
     html::push_html(&mut html_out, events.into_iter());
     Rendered {
-        html: wrap_tables(sanitize(&html_out)),
+        html: wrap_tables(sanitize(&html_out, media_prefix)),
         toc,
         has_mermaid,
         has_code,
@@ -339,17 +350,62 @@ fn unique_id(used: &mut HashMap<String, u32>, id: String) -> String {
     }
 }
 
-fn sanitize(html: &str) -> String {
-    ammonia::Builder::default()
-        .add_tags(["div", "input", "section", "aside", "nav"])
+fn sanitize(html: &str, media_prefix: Option<&str>) -> String {
+    let mut builder = ammonia::Builder::default();
+    builder
+        .add_tags([
+            "div", "input", "section", "aside", "nav", "video", "audio", "source", "picture",
+        ])
         .add_generic_attributes(["class", "id"])
         .add_tag_attributes("input", ["type", "checked", "disabled"])
         .add_tag_attributes("th", ["style"])
         .add_tag_attributes("td", ["style"])
+        .add_tag_attributes("img", ["srcset"])
+        .add_tag_attributes(
+            "video",
+            [
+                "src",
+                "poster",
+                "controls",
+                "loop",
+                "muted",
+                "playsinline",
+                "preload",
+                "width",
+                "height",
+            ],
+        )
+        .add_tag_attributes("audio", ["src", "controls", "loop", "muted", "preload"])
+        .add_tag_attributes(
+            "source",
+            ["src", "type", "srcset", "media", "width", "height"],
+        )
         .filter_style_properties(["text-align"].into_iter().collect())
-        .id_prefix(Some(""))
-        .clean(html)
-        .to_string()
+        .id_prefix(Some(""));
+    if let Some(prefix) = media_prefix {
+        let prefix = prefix.to_string();
+        builder.attribute_filter(move |element, attribute, value| {
+            let rewrite = matches!(
+                (element, attribute),
+                ("img", "src" | "srcset")
+                    | ("video", "src" | "poster")
+                    | ("audio", "src")
+                    | ("source", "src" | "srcset")
+                    | ("a", "href")
+            );
+            if !rewrite {
+                return Some(Cow::Borrowed(value));
+            }
+            if attribute == "srcset" {
+                return Some(Cow::Owned(crate::media::rewrite_srcset(value, &prefix)));
+            }
+            match crate::media::rewrite_media_ref(value, &prefix) {
+                Some(next) => Some(Cow::Owned(next)),
+                None => Some(Cow::Borrowed(value)),
+            }
+        });
+    }
+    builder.clean(html).to_string()
 }
 
 fn extract_html_toc(html: String) -> (String, Vec<TocItem>) {
@@ -687,5 +743,47 @@ graph TD
         assert!(out.html.contains("id=\"tieng-viet\""));
         assert!(out.html.contains("id=\"o-nha\""));
         assert!(out.html.contains("Tiếng Việt"));
+    }
+
+    #[test]
+    fn relative_media_is_rewritten_onto_the_document() {
+        let prefix = "/d/inbox/notes.md/media";
+        let md = "# Page\n\n![Hero](images/hero.png)\n\n[design](design.md)\n\n![](https://example.com/a.png)\n\n<video src=\"clip.mp4\" controls></video>\n";
+        let View::Html(out) = render_document(Kind::Markdown, md.as_bytes(), Some(prefix)) else {
+            panic!("expected html");
+        };
+        assert!(
+            out.html
+                .contains("src=\"/d/inbox/notes.md/media/images/hero.png\""),
+            "{}",
+            out.html
+        );
+        assert!(
+            out.html.contains("https://example.com/a.png"),
+            "{}",
+            out.html
+        );
+        assert!(
+            out.html.contains("href=\"design.md\""),
+            "sibling doc link should stay relative: {}",
+            out.html
+        );
+        assert!(
+            out.html
+                .contains("src=\"/d/inbox/notes.md/media/clip.mp4\""),
+            "{}",
+            out.html
+        );
+        assert!(out.html.contains("controls"), "{}", out.html);
+
+        let html = r#"<h1>Report</h1><img src="shot.png" alt="s" onerror="alert(1)"><a href="other.md">other</a>"#;
+        let View::Html(out) = render_document(Kind::Html, html.as_bytes(), Some(prefix)) else {
+            panic!("expected html");
+        };
+        assert!(out
+            .html
+            .contains("src=\"/d/inbox/notes.md/media/shot.png\""));
+        assert!(!out.html.contains("onerror"));
+        assert!(out.html.contains("href=\"other.md\""));
     }
 }

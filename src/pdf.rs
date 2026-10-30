@@ -2,7 +2,7 @@ use crate::render::Kind;
 use markdown2pdf::config::ConfigSource;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn filename(slug: &str) -> String {
     let slug = slug.replace(['"', '/', '\\'], "");
@@ -20,25 +20,48 @@ pub fn filename(slug: &str) -> String {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn render(kind: Kind, title: &str, slug: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+    render_with_media(kind, title, slug, body, None)
+}
+
+pub fn render_with_media(
+    kind: Kind,
+    title: &str,
+    slug: &str,
+    body: &[u8],
+    media_root: Option<&Path>,
+) -> Result<Vec<u8>, String> {
     match kind {
         Kind::Pdf => Ok(body.to_vec()),
         Kind::File => Err("this file type cannot be exported as PDF".into()),
         Kind::Image => render_image(title, slug, body),
         Kind::Markdown | Kind::Html | Kind::Text => {
             let markdown = to_markdown(kind, title, body);
-            bytes_from_markdown(&markdown, title)
+            let root = media_root.filter(|path| path.is_dir());
+            bytes_from_markdown(&markdown, title, root)
         }
     }
 }
 
-fn bytes_from_markdown(markdown: &str, title: &str) -> Result<Vec<u8>, String> {
-    let cfg = config_toml(title);
+fn bytes_from_markdown(
+    markdown: &str,
+    title: &str,
+    image_root: Option<&Path>,
+) -> Result<Vec<u8>, String> {
+    let cfg = config_toml(title, image_root);
     markdown2pdf::parse_into_bytes(markdown.to_string(), ConfigSource::Embedded(&cfg), None)
         .map_err(|e| e.to_string())
 }
 
-fn config_toml(title: &str) -> String {
+fn config_toml(title: &str, image_root: Option<&Path>) -> String {
+    let root = match image_root {
+        Some(path) => format!(
+            "image_root = {}\n",
+            toml_string(&path.display().to_string())
+        ),
+        None => String::new(),
+    };
     format!(
         r#"
 theme = "github"
@@ -57,8 +80,10 @@ enabled = false
 
 [security]
 allow_remote_images = false
-"#,
+allow_absolute_image_paths = false
+{root}"#,
         title = toml_string(title),
+        root = root,
     )
 }
 
@@ -91,6 +116,7 @@ fn heading_text(s: &str) -> String {
 }
 
 fn html_to_markdown(title: &str, html: &str) -> String {
+    let html = img_tags_to_markdown(html);
     let mut out = String::new();
     let lower = html.to_ascii_lowercase();
     let mut i = 0;
@@ -134,6 +160,73 @@ fn html_to_markdown(title: &str, html: &str) -> String {
     } else {
         format!("# {}\n\n{}\n", heading_text(title), out)
     }
+}
+
+fn img_tags_to_markdown(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let bytes = html.as_bytes();
+    let mut out = String::with_capacity(html.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let is_img = lower[i..].starts_with("<img")
+            && bytes
+                .get(i + 4)
+                .is_some_and(|b| b.is_ascii_whitespace() || *b == b'/' || *b == b'>');
+        if is_img {
+            if let Some(rel_end) = html[i..].find('>') {
+                let end = i + rel_end + 1;
+                if let Some(src) = html_attr(&html[i..end], "src") {
+                    let alt = html_attr(&html[i..end], "alt").unwrap_or("");
+                    let alt = alt.replace(['[', ']', '\n', '\r'], " ");
+                    out.push_str("\n\n![");
+                    out.push_str(alt.trim());
+                    out.push_str("](");
+                    out.push_str(src.trim());
+                    out.push_str(")\n\n");
+                }
+                i = end;
+                continue;
+            }
+        }
+        let ch = html[i..].chars().next().unwrap_or('\u{FFFD}');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn html_attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let lower = tag.to_ascii_lowercase();
+    let key = format!("{name}=");
+    let mut from = 0;
+    while let Some(rel) = lower[from..].find(&key) {
+        let at = from + rel;
+        let boundary = at == 0 || !lower.as_bytes()[at - 1].is_ascii_alphanumeric();
+        if !boundary {
+            from = at + 1;
+            continue;
+        }
+        let mut i = at + key.len();
+        let bytes = tag.as_bytes();
+        if i >= bytes.len() {
+            return None;
+        }
+        let quote = bytes[i];
+        if quote == b'"' || quote == b'\'' {
+            i += 1;
+            let start = i;
+            while i < bytes.len() && bytes[i] != quote {
+                i += 1;
+            }
+            return Some(&tag[start..i]);
+        }
+        let start = i;
+        while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'>' {
+            i += 1;
+        }
+        return Some(&tag[start..i]);
+    }
+    None
 }
 
 fn html_chunk_to_md(s: &str) -> String {
@@ -201,13 +294,14 @@ fn render_image(title: &str, slug: &str, body: &[u8]) -> Result<Vec<u8>, String>
     let ext = image_ext(slug);
     let dir: PathBuf = std::env::temp_dir().join(format!("gist-pdf-{}", nanoid::nanoid!(8)));
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let img = dir.join(format!("image{ext}"));
+    let name = format!("image{ext}");
+    let img = dir.join(&name);
     let result = (|| {
         let mut f = fs::File::create(&img).map_err(|e| e.to_string())?;
         f.write_all(body).map_err(|e| e.to_string())?;
         f.flush().map_err(|e| e.to_string())?;
-        let md = format!("# {}\n\n![]({})\n", heading_text(title), img.display());
-        bytes_from_markdown(&md, title)
+        let md = format!("# {}\n\n![]({name})\n", heading_text(title));
+        bytes_from_markdown(&md, title, Some(&dir))
     })();
     let _ = fs::remove_dir_all(&dir);
     result

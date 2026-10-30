@@ -105,6 +105,12 @@ curl -fsS -X PUT "$GIST_URL/d/report.html" \
   -H "Content-Type: text/html" \
   --data-binary @report.html
 
+# Image used by that page (`<img src="shot.png">` or `![](shot.png)`)
+curl -fsS -X PUT "$GIST_URL/d/inbox/report.html/media/shot.png" \
+  -H "Authorization: Bearer $GIST_TOKEN" \
+  -H "Content-Type: image/png" \
+  --data-binary @shot.png
+
 # Plain text / JSON / anything else
 curl -fsS -X PUT "$GIST_URL/d/trace.json" \
   -H "Authorization: Bearer $GIST_TOKEN" \
@@ -136,13 +142,19 @@ curl -fsS -X POST "$GIST_URL/api/docs" \
 | `GET` | `/d/{slug}` | Rendered view (browser) |
 | `GET` | `/d/{slug}/raw` | Original bytes |
 | `GET` | `/d/{slug}/pdf` | PDF of the document (headings become the outline) |
+| `PUT` | `/d/{project}/{slug}/media/{path}` | Attach an image, audio, or video file |
+| `GET` | `/d/{project}/{slug}/media/{path}` | Fetch that file |
 | `DELETE` | `/api/docs/{slug}` | Remove |
 | `GET` | `/api/docs` | JSON list |
 | `GET` | `/health` | Liveness, no auth |
 
+`gist put notes.md` uploads a markdown or HTML page and any images, audio, or video it references with a relative path, such as `![](images/hero.png)`. `gist put ./directory` does the same for a folder that contains `index.html` or `index.md`. Putting the page again with the CLI replaces that media set. `X-Gist-Media: replace` does the same on a raw PUT.
+
+Relative media URLs in the rendered page point at `/d/{project}/{slug}/media/...`. A link to another document (`design.md`) is left alone. Uploaded HTML is still sanitized: scripts and stylesheets from the document do not run. SVG is served as an image. PDF export embeds those local images and does not read paths outside the document's media directory.
+
 Slugs are `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. No paths, no `..`. A Vietnamese (or other accented) name is folded into that charset instead of rejected: `Tiếng Việt.md` is stored as `tieng-viet.md`, and the original title is kept.
 
-Markdown is converted to HTML with GitHub-flavored extras (tables, task lists, footnotes, alerts), a table of contents, and server-side syntax highlighting (theme picker on the doc page). The header has an appearance control (auto / light / dark) and a reading-font control (English / Tiếng Việt), both stored in the browser. Fenced `mermaid` blocks render in the browser. Uploaded HTML is passed through [ammonia](https://docs.rs/ammonia) so scripts and event handlers from the document do not run. Raw HTML/JS/SVG is served as `text/plain`.
+Markdown is converted to HTML with GitHub-flavored extras (tables, task lists, footnotes, alerts), a table of contents, and server-side syntax highlighting (theme picker on the doc page). The header has an appearance control (auto / light / dark) and a reading-font control (English / Tiếng Việt), both stored in the browser. Fenced `mermaid` blocks render in the browser. Uploaded HTML is passed through [ammonia](https://docs.rs/ammonia) so scripts and event handlers from the document do not run. Raw HTML/JS is served as `text/plain`. Images, audio, and video attached to a page are served with their own type.
 
 ## Environment
 

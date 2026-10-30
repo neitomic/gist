@@ -36,6 +36,17 @@ Or: `gist put FILE --project "$PROJECT" --slug "$SLUG" --title "$TITLE"`
 - Slug: `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Prefer `topic.md`. Same project+slug overwrites. A name with accents is folded into that charset (`Tiếng Việt.md` → `tieng-viet.md`); the display title is kept. `X-Title` may be plain ASCII or percent-encoded UTF-8.
 - Types: `text/markdown`, `text/html`, `text/plain`, `application/json`, images, PDF.
 - Prefer markdown for anything the human will read.
+- A page can include images, audio, and video. `gist put page.md` uploads files the page references with a relative path (`![](images/hero.png)`, `<img src="shot.png">`, `<video src="clip.mp4">`). `gist put ./directory` uploads `index.html` or `index.md` plus the media files in that directory. The same project+slug replaces the previous media set.
+
+```bash
+# without the CLI: put the page, then each file
+curl -fsS -X PUT "$GIST_URL/d/$PROJECT/$SLUG/media/images/hero.png" \
+  -H "Authorization: Bearer $GIST_TOKEN" \
+  -H "Content-Type: image/png" \
+  --data-binary @images/hero.png
+```
+
+`X-Gist-Media: replace` on the page PUT deletes the previous media files. Relative media paths are rewritten to `/d/$PROJECT/$SLUG/media/...`. Links to other documents (`design.md`) stay as they are. Scripts and stylesheets in uploaded HTML do not run.
 - Response JSON has `url` — that is what you give the human.
 
 ```bash

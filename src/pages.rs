@@ -205,7 +205,8 @@ article.doc pre.mermaid {
   background: transparent; border: 0; padding: 16px; margin: 0; overflow: visible;
   text-align: left;
 }
-article.doc img, article.doc video, article.doc svg { max-width: 100%; height: auto; border-radius: 8px; }
+article.doc img, article.doc video, article.doc audio, article.doc svg { max-width: 100%; height: auto; border-radius: 8px; }
+article.doc audio { width: 100%; }
 .mermaid-toolbar {
   display: flex; justify-content: flex-end; align-items: center; gap: 4px; flex-wrap: wrap;
   padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--chip);
@@ -719,7 +720,7 @@ pub fn drop_form() -> String {
         true,
         r#"
 <h2>Drop a document</h2>
-<p class="muted">For agents, prefer a raw PUT. This form is for you.</p>
+<p class="muted">For agents, prefer <code>gist put</code>. A markdown or HTML file can bring images, audio, and video with it.</p>
 <div class="card pad">
 <form method="post" action="/d" enctype="multipart/form-data">
   <label for="project">Project</label>
@@ -731,8 +732,12 @@ pub fn drop_form() -> String {
   <label for="title">Title (optional)</label>
   <input id="title" name="title" type="text">
   <p></p>
-  <label for="file">File</label>
+  <label for="file">Page</label>
   <input id="file" name="file" type="file" required>
+  <p></p>
+  <label for="media">Images, audio, or video (optional)</label>
+  <input id="media" name="media" type="file" multiple accept="image/*,audio/*,video/*">
+  <p class="muted">Use the same file name the page references, such as <code>hero.png</code> for <code>![](hero.png)</code>.</p>
   <p></p>
   <button type="submit">Save</button>
 </form>

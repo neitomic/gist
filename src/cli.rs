@@ -22,9 +22,9 @@ pub enum Command {
         #[arg(long, short = 'y')]
         yes: bool,
     },
-    /// Upload a file (reads ~/.config/gist/config)
+    /// Upload a file or a page directory (reads ~/.config/gist/config)
     Put {
-        /// File to upload
+        /// File to upload, or a directory with index.html / index.md and its media
         file: PathBuf,
         /// Project to group under (default: $GIST_PROJECT, git root name, or inbox)
         #[arg(long, short = 'p')]
@@ -140,26 +140,45 @@ fn put(
     title: Option<String>,
 ) -> Result<(), String> {
     let cfg = require_config()?;
-    let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-    let name = file
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("upload");
-    let raw_slug = slug.unwrap_or_else(|| name.to_string());
+    let source = crate::media::collect_upload(&file)?;
+    let raw_slug = slug.unwrap_or(source.default_slug);
     let project = project.unwrap_or_else(infer_project);
     Store::validate_project(&project).map_err(|_| format!("invalid project '{project}'"))?;
     let slug = Store::normalize_slug(&raw_slug).ok_or_else(|| {
         format!("invalid slug '{raw_slug}' (use letters, digits, '.', '_' or '-', max 128)")
     })?;
-    let ct = content_type_from_filename(name);
+    let ct = content_type_from_filename(&source.type_name);
     let mut req = ureq::put(&format!("{}/d/{project}/{slug}", cfg.cli_url()))
         .set("Authorization", &format!("Bearer {}", cfg.token))
         .set("Content-Type", &ct);
     if let Some(title) = title.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         req = req.set("X-Title", &encode_header_value(title));
     }
+    // A page upload replaces the previous media set, then sends the files
+    // the page references now.
+    if source.sync_media {
+        req = req.set("X-Gist-Media", "replace");
+    }
+    let body = send_put(req, &source.body)?;
+    for (rel, path) in &source.assets {
+        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let url = format!(
+            "{}/d/{project}/{slug}/media/{}",
+            cfg.cli_url(),
+            crate::media::encode_rel(rel)
+        );
+        let req = ureq::put(&url)
+            .set("Authorization", &format!("Bearer {}", cfg.token))
+            .set("Content-Type", &content_type_from_filename(rel));
+        send_put(req, &bytes).map_err(|e| format!("{rel}: {e}"))?;
+    }
+    println!("{body}");
+    Ok(())
+}
+
+fn send_put(req: ureq::Request, bytes: &[u8]) -> Result<String, String> {
     let resp = req
-        .send_bytes(&bytes)
+        .send_bytes(bytes)
         .map_err(|e| format!("upload failed: {e}"))?;
     let status = resp.status();
     let mut body = String::new();
@@ -169,8 +188,7 @@ fn put(
     if !(200..300).contains(&status) {
         return Err(format!("server {status}: {body}"));
     }
-    println!("{body}");
-    Ok(())
+    Ok(body)
 }
 
 fn list() -> Result<(), String> {

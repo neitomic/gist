@@ -34,6 +34,21 @@ curl -fsS -X PUT "$GIST_URL/d/repo-name/topic.md" \
 
 Slug: `[A-Za-z0-9][A-Za-z0-9._-]+`. Same project+slug overwrites. Prefer `.md`. Accents are folded (`Tiếng Việt.md` → `tieng-viet.md`); put the real title in `X-Title` (plain ASCII, or percent-encoded UTF-8).
 
+## Pages with images
+
+`gist put page.md` also uploads images, audio, and video the page references by a relative path (`![](images/hero.png)`, `<img src="shot.png">`, `<video src="clip.mp4">`). `gist put ./directory` uploads `index.html` or `index.md` plus the media files next to it.
+
+Without the CLI, put the page, then each file:
+
+```bash
+curl -fsS -X PUT "$GIST_URL/d/$PROJECT/$SLUG/media/images/hero.png" \
+  -H "Authorization: Bearer $GIST_TOKEN" \
+  -H "Content-Type: image/png" \
+  --data-binary @images/hero.png
+```
+
+`X-Gist-Media: replace` on the page PUT clears the previous media set.
+
 ## Do not
 
 - Put the token in a document, a URL query, or a chat message.

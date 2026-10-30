@@ -3,6 +3,7 @@ mod auth;
 mod cli;
 mod config;
 mod highlight;
+mod media;
 mod pages;
 mod pdf;
 mod render;
@@ -22,14 +23,16 @@ use axum::{
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use bytes::Bytes;
 use clap::Parser;
-use render::{render_body, view_kind, Kind, Rendered, View};
+use render::{render_document, view_kind, Kind, Rendered, View};
 use serde::Deserialize;
 use std::{
     io::{ErrorKind, Write},
     net::SocketAddr,
     path::PathBuf,
 };
-use store::{guess_content_type, guess_title, Store, StoreError, DEFAULT_PROJECT};
+use store::{
+    content_type_from_filename, guess_content_type, guess_title, Store, StoreError, DEFAULT_PROJECT,
+};
 use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 use tokio::net::TcpListener;
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
@@ -154,6 +157,11 @@ fn router(app: App) -> Router {
         .route("/d/{project}/{slug}/raw", get(raw_doc_p))
         .route("/d/{project}/{slug}/pdf", get(pdf_doc_p))
         .route("/d/{project}/{slug}/delete", post(delete_doc_p))
+        .route("/d/{project}/{slug}/media", get(list_media))
+        .route(
+            "/d/{project}/{slug}/media/{*path}",
+            get(get_media).put(put_media).delete(delete_media),
+        )
         .route("/api/docs", get(api_list).post(api_create))
         .route(
             "/api/docs/{slug}",
@@ -351,9 +359,14 @@ async fn agent_card(State(app): State<App>, headers: HeaderMap) -> impl IntoResp
         "put": {
             "method": "PUT",
             "path": "/d/{project}/{slug}",
-            "headers": ["Content-Type", "X-Title", "X-Project"],
+            "headers": ["Content-Type", "X-Title", "X-Project", "X-Gist-Media"],
             "default_project": DEFAULT_PROJECT,
             "overwrite": true
+        },
+        "media": {
+            "method": "PUT",
+            "path": "/d/{project}/{slug}/media/{path}",
+            "note": "image, audio, or video referenced by a relative path in the page"
         },
         "list": { "method": "GET", "path": "/api/docs" },
         "docs": "/agent.md"
@@ -540,6 +553,10 @@ async fn save_doc(
         .get("x-title")
         .and_then(header_text)
         .unwrap_or_else(|| guess_title(&raw_slug, &content_type, &body));
+    let replace_media = headers
+        .get("x-gist-media")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("replace"));
 
     match app
         .store
@@ -547,6 +564,11 @@ async fn save_doc(
         .await
     {
         Ok(meta) => {
+            if replace_media {
+                if let Err(e) = app.store.clear_media(&project, &slug).await {
+                    return store_error(e);
+                }
+            }
             let url = public_doc_url(&app, &headers, &meta);
             (
                 StatusCode::CREATED,
@@ -594,6 +616,7 @@ async fn create_multipart(
     let mut filename: Option<String> = None;
     let mut content_type: Option<String> = None;
     let mut body: Option<Bytes> = None;
+    let mut media_parts: Vec<(String, Bytes)> = Vec::new();
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or("").to_string();
@@ -624,6 +647,20 @@ async fn create_multipart(
                 content_type = field.content_type().map(|s| s.to_string());
                 match field.bytes().await {
                     Ok(b) => body = Some(b),
+                    Err(e) => {
+                        return (StatusCode::BAD_REQUEST, format!("upload failed: {e}"))
+                            .into_response();
+                    }
+                }
+            }
+            "media" => {
+                let fname = field.file_name().unwrap_or("").to_string();
+                if fname.trim().is_empty() {
+                    return (StatusCode::BAD_REQUEST, "media file needs a filename")
+                        .into_response();
+                }
+                match field.bytes().await {
+                    Ok(b) => media_parts.push((fname, b)),
                     Err(e) => {
                         return (StatusCode::BAD_REQUEST, format!("upload failed: {e}"))
                             .into_response();
@@ -672,8 +709,34 @@ async fn create_multipart(
     };
     let ct = guess_content_type(type_name, content_type.as_deref());
     let title = title.unwrap_or_else(|| guess_title(type_name, &ct, &body));
+    if media_parts.len() > media::MAX_MEDIA_FILES {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("too many media files (max {})", media::MAX_MEDIA_FILES),
+        )
+            .into_response();
+    }
+    let mut clean_media = Vec::with_capacity(media_parts.len());
+    for (name, bytes) in media_parts {
+        if bytes.len() > app.max_bytes {
+            return (StatusCode::PAYLOAD_TOO_LARGE, "too large").into_response();
+        }
+        let Some(rel) = media::normalize_media_rel(&name) else {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("invalid media path '{name}'"),
+            )
+                .into_response();
+        };
+        clean_media.push((rel, bytes));
+    }
     match app.store.put(&project, &slug, title, ct, &body).await {
         Ok(meta) => {
+            for (rel, bytes) in &clean_media {
+                if let Err(e) = app.store.put_media(&project, &slug, rel, bytes).await {
+                    return store_error(e);
+                }
+            }
             if wants_html(&headers) {
                 Redirect::to(&meta.href()).into_response()
             } else {
@@ -731,7 +794,8 @@ async fn show_doc(app: App, project: String, slug: String, headers: HeaderMap) -
         Err(e) => return store_error(e),
     };
     let kind = view_kind(&meta.content_type, &meta.slug);
-    let rendered = match render_body(kind, &body) {
+    let media_prefix = format!("{}/media", meta.href());
+    let rendered = match render_document(kind, &body, Some(&media_prefix)) {
         View::Html(html) => html,
         View::Binary => Rendered::default(),
     };
@@ -787,20 +851,22 @@ async fn export_pdf(app: App, project: String, slug: String, headers: HeaderMap)
     let kind = view_kind(&meta.content_type, &meta.slug);
     let title = meta.title.clone();
     let slug_owned = meta.slug.clone();
-    let rendered =
-        match tokio::task::spawn_blocking(move || pdf::render(kind, &title, &slug_owned, &body))
-            .await
-        {
-            Ok(Ok(bytes)) => bytes,
-            Ok(Err(e)) => {
-                warn!("pdf export failed: {e}");
-                return (StatusCode::BAD_REQUEST, e).into_response();
-            }
-            Err(e) => {
-                warn!("pdf export join failed: {e}");
-                return (StatusCode::INTERNAL_SERVER_ERROR, "pdf export failed").into_response();
-            }
-        };
+    let media_root = app.store.media_dir(&project, &slug).await;
+    let rendered = match tokio::task::spawn_blocking(move || {
+        pdf::render_with_media(kind, &title, &slug_owned, &body, media_root.as_deref())
+    })
+    .await
+    {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(e)) => {
+            warn!("pdf export failed: {e}");
+            return (StatusCode::BAD_REQUEST, e).into_response();
+        }
+        Err(e) => {
+            warn!("pdf export join failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "pdf export failed").into_response();
+        }
+    };
     let filename = pdf::filename(&meta.slug);
     let mut res = Response::new(Body::from(rendered));
     res.headers_mut().insert(
@@ -861,6 +927,140 @@ async fn raw_body(app: App, project: String, slug: String) -> Response {
     res.headers_mut().insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
+    );
+    res
+}
+
+fn checked_project(project: &str) -> Option<String> {
+    if Store::validate_project(project).is_ok() {
+        Some(project.to_string())
+    } else {
+        None
+    }
+}
+
+fn checked_slug(slug: &str) -> Option<String> {
+    Store::normalize_slug(slug)
+}
+
+async fn list_media(
+    State(app): State<App>,
+    Authed: Authed,
+    Path((project, slug)): Path<(String, String)>,
+) -> Response {
+    let Some(project) = checked_project(&project) else {
+        return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
+    };
+    let Some(slug) = checked_slug(&slug) else {
+        return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
+    };
+    match app.store.list_media(&project, &slug).await {
+        Ok(files) => Json(serde_json::json!({ "files": files })).into_response(),
+        Err(e) => store_error(e),
+    }
+}
+
+async fn put_media(
+    State(app): State<App>,
+    Authed: Authed,
+    Path((project, slug, path)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if body.len() > app.max_bytes {
+        return (StatusCode::PAYLOAD_TOO_LARGE, "too large").into_response();
+    }
+    let Some(project) = checked_project(&project) else {
+        return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
+    };
+    let Some(slug) = checked_slug(&slug) else {
+        return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
+    };
+    match app.store.put_media(&project, &slug, &path, &body).await {
+        Ok(rel) => {
+            let meta = match app.store.get_meta(&project, &slug).await {
+                Ok(meta) => meta,
+                Err(e) => return store_error(e),
+            };
+            let page = public_doc_url(&app, &headers, &meta);
+            let url = format!("{page}/media/{}", media::encode_rel(&rel));
+            (
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "path": rel,
+                    "bytes": body.len(),
+                    "url": url,
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => store_error(e),
+    }
+}
+
+async fn get_media(
+    State(app): State<App>,
+    Authed: Authed,
+    Path((project, slug, path)): Path<(String, String, String)>,
+) -> Response {
+    let Some(project) = checked_project(&project) else {
+        return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
+    };
+    let Some(slug) = checked_slug(&slug) else {
+        return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
+    };
+    let Some(rel) = media::normalize_media_rel(&path) else {
+        return (StatusCode::BAD_REQUEST, "invalid media path").into_response();
+    };
+    match app.store.get_media(&project, &slug, &rel).await {
+        Ok((rel, bytes)) => media_response(&rel, bytes),
+        Err(e) => store_error(e),
+    }
+}
+
+async fn delete_media(
+    State(app): State<App>,
+    Authed: Authed,
+    Path((project, slug, path)): Path<(String, String, String)>,
+) -> Response {
+    let Some(project) = checked_project(&project) else {
+        return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
+    };
+    let Some(slug) = checked_slug(&slug) else {
+        return (StatusCode::BAD_REQUEST, "invalid project or slug").into_response();
+    };
+    match app.store.delete_media(&project, &slug, &path).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => store_error(e),
+    }
+}
+
+fn media_response(rel: &str, bytes: Vec<u8>) -> Response {
+    // SVG stays an image so <img> can draw it. The page CSP blocks inline
+    // script if the file is opened on its own.
+    let ct = content_type_from_filename(rel);
+    let name = rel
+        .rsplit('/')
+        .next()
+        .unwrap_or(rel)
+        .replace(['"', '\n', '\r'], "");
+    let mut res = Response::new(Body::from(bytes));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&ct).unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
+    res.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("inline; filename=\"{name}\""))
+            .unwrap_or(HeaderValue::from_static("inline")),
+    );
+    res.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    res.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=3600"),
     );
     res
 }
@@ -1606,5 +1806,143 @@ mod tests {
             "{}",
             res.status()
         );
+    }
+
+    #[tokio::test]
+    async fn markdown_page_serves_its_images() {
+        let dir = std::env::temp_dir().join(format!("gist-test-{}", nanoid::nanoid!(6)));
+        let app = test_app(dir.clone());
+        let auth = "Bearer test-token-16chars";
+        let res = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("PUT")
+                    .uri("/d/inbox/notes.md")
+                    .header("authorization", auth)
+                    .header("content-type", "text/markdown")
+                    .body(Body::from(
+                        "# Notes\n\n![Hero](images/hero.png)\n\n[design](design.md)\n",
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+
+        let res = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("PUT")
+                    .uri("/d/inbox/notes.md/media/images/hero.png")
+                    .header("authorization", auth)
+                    .header("content-type", "image/png")
+                    .body(Body::from("png-bytes"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+        let json = body_string(res).await;
+        assert!(
+            json.contains("/d/inbox/notes.md/media/images/hero.png"),
+            "{json}"
+        );
+
+        let res = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/d/inbox/notes.md")
+                    .header("authorization", auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let html = body_string(res).await;
+        assert!(
+            html.contains("src=\"/d/inbox/notes.md/media/images/hero.png\""),
+            "{html}"
+        );
+        assert!(html.contains("href=\"design.md\""), "{html}");
+
+        let res = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/d/inbox/notes.md/media/images/hero.png")
+                    .header("authorization", auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(
+            res.headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("image/png")
+        );
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(bytes.as_ref(), b"png-bytes");
+
+        let res = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/d/inbox/notes.md/media/images/hero.png")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        let res = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("PUT")
+                    .uri("/d/inbox/notes.md/media/%2e%2e%2fsecret.png")
+                    .header("authorization", auth)
+                    .body(Body::from("nope"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        let res = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("PUT")
+                    .uri("/d/inbox/notes.md")
+                    .header("authorization", auth)
+                    .header("content-type", "text/markdown")
+                    .header("x-gist-media", "replace")
+                    .body(Body::from("# Notes\n\nno image\n"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+        let res = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/d/inbox/notes.md/media/images/hero.png")
+                    .header("authorization", auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
