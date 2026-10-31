@@ -14,6 +14,14 @@
   } catch (e) {}
   document.documentElement.setAttribute("data-toc", tocOn ? "on" : "off");
 
+  var WIDTH_KEY = "gist-width";
+  var pageWidth = "s";
+  try {
+    var storedWidth = localStorage.getItem(WIDTH_KEY);
+    if (storedWidth === "m" || storedWidth === "l") pageWidth = storedWidth;
+  } catch (e) {}
+  document.documentElement.setAttribute("data-width", pageWidth);
+
   function onReady(fn) {
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", fn);
@@ -35,6 +43,7 @@
       });
     }
     wireTocToggle();
+    wirePageWidth();
     addCopyButtons();
     watchToc();
     loadMermaid();
@@ -53,6 +62,23 @@
         localStorage.setItem(TOC_KEY, tocOn ? "on" : "off");
       } catch (e) {}
       document.documentElement.setAttribute("data-toc", tocOn ? "on" : "off");
+    });
+  }
+
+  function wirePageWidth() {
+    var radios = document.querySelectorAll('.width-pick input[name="page-width"]');
+    if (!radios.length) return;
+    Array.prototype.forEach.call(radios, function (radio) {
+      radio.checked = radio.value === pageWidth;
+      radio.addEventListener("change", function () {
+        if (!radio.checked) return;
+        var next = radio.value === "m" || radio.value === "l" ? radio.value : "s";
+        pageWidth = next;
+        try {
+          localStorage.setItem(WIDTH_KEY, next);
+        } catch (e) {}
+        document.documentElement.setAttribute("data-width", next);
+      });
     });
   }
 

@@ -17,8 +17,14 @@ const CSS: &str = r#"
   --chip: #ece4d6;
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --prose: var(--sans);
+  /* Narrow is the reading measure. Medium and Wide are chosen on the page. */
+  --page: 40rem;
   color-scheme: light dark;
 }
+html[data-width="m"] { --page: 60rem; }
+html[data-width="l"] { --page: 100%; }
+html:not([data-width]):has(#width-m:checked) { --page: 60rem; }
+html:not([data-width]):has(#width-l:checked) { --page: 100%; }
 html[data-theme="light"] { color-scheme: light; }
 html[data-theme="dark"] {
   color-scheme: dark;
@@ -57,7 +63,7 @@ body {
 a { color: var(--accent); }
 header.app, footer.app, main { width: min(840px, calc(100% - 32px)); margin: 0 auto; min-width: 0; }
 body.doc-page header.app, body.doc-page footer.app, body.doc-page main {
-  width: min(40rem, calc(100% - 32px));
+  width: min(var(--page), calc(100% - 32px));
 }
 header.app {
   display: flex; align-items: center; justify-content: space-between;
@@ -135,14 +141,14 @@ ul.docs .sub { color: var(--muted); font-size: 0.88rem; }
 .when { color: var(--muted); font-size: 0.82rem; white-space: nowrap; }
 article.doc {
   /* The card is the measure, so headings, prose, code, and tables share
-     one left edge. 40rem at 16px with the padding below is about 70 characters. */
+     one left edge. Narrow is 40rem, about 70 characters at 16px. */
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 28px 32px 40px;
   font-family: var(--prose);
   font-size: 1rem; line-height: 1.65;
-  max-width: 40rem;
+  max-width: var(--page);
   min-width: 0;
 }
 article.doc h1, article.doc h2, article.doc h3, article.doc h4 {
@@ -328,11 +334,15 @@ article.doc > :first-child { margin-top: 0; }
 .doc-layout > nav.toc li.l3 a { padding-left: 18px; }
 .doc-layout > nav.toc li.l4 a, .doc-layout > nav.toc li.l5 a, .doc-layout > nav.toc li.l6 a { padding-left: 28px; }
 @media (min-width: 960px) {
-  .doc-layout.has-toc { grid-template-columns: 220px minmax(0, 40rem); }
+  .doc-layout.has-toc { grid-template-columns: 220px minmax(0, var(--page)); }
+  html[data-width="l"] .doc-layout.has-toc,
+  html:not([data-width]):has(#width-l:checked) .doc-layout.has-toc {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
   body.doc-page:has(.doc-layout.has-toc) header.app,
   body.doc-page:has(.doc-layout.has-toc) footer.app,
   body.doc-page:has(.doc-layout.has-toc) main {
-    width: min(calc(40rem + 242px), calc(100% - 32px));
+    width: min(calc(var(--page) + 242px), calc(100% - 32px));
   }
   .doc-layout > nav.toc { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
   .doc-layout > nav.toc summary { pointer-events: none; }
@@ -354,7 +364,27 @@ html[data-toc="off"] .doc-layout.has-toc,
 .doc-head { margin-bottom: 16px; }
 .doc-head h2 { margin: 4px 0; font-size: 1.2rem; font-weight: 640; letter-spacing: -0.02em; }
 .doc-head:has(#toc-toggle:not(:checked)),
-html[data-toc="off"] .doc-head { max-width: 40rem; }
+html[data-toc="off"] .doc-head { max-width: var(--page); }
+.width-pick {
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+}
+.width-pick input {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; padding: 0;
+}
+.width-pick label {
+  margin: 0; padding: 9px 12px; font-size: inherit; line-height: 1.5;
+  color: var(--muted); cursor: pointer; border-left: 1px solid var(--line);
+}
+.width-pick label:first-of-type { border-left: 0; }
+html[data-width="s"] .width-pick label[for="width-s"],
+html[data-width="m"] .width-pick label[for="width-m"],
+html[data-width="l"] .width-pick label[for="width-l"],
+html:not([data-width]) .width-pick input:checked + label {
+  background: var(--ink); color: var(--bg);
+}
+.width-pick input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -2px; }
 .meta-line { font-size: 0.88rem; color: var(--muted); margin: 0 0 12px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .pager { display: flex; justify-content: space-between; gap: 12px; margin: 22px 0 0; font-size: 0.9rem; }
@@ -399,7 +429,7 @@ label.theme-pick select {
     width: auto; margin: 0;
   }
   .doc-layout, .doc-layout.has-toc { display: block; }
-  .doc-head { margin: 0 0 10px; }
+  .doc-head { margin: 0 0 10px; max-width: none; }
   .doc-head h2 { font-size: 1.35rem; margin: 0 0 4px; }
   article.doc {
     border: 0; border-radius: 0; padding: 0; background: transparent; max-width: none;
@@ -891,6 +921,7 @@ pub fn document(
     <a class="btn ghost" href="{href}/raw">Raw</a>
     {pdf_btn}
     {toc_btn}
+    {width_pick}
     {theme_pick}
     <form method="post" action="{href}/delete">
       <button class="danger" type="submit">Delete</button>
@@ -914,6 +945,7 @@ pub fn document(
             when = esc(&human_time(&meta.updated)),
             pdf_btn = pdf_btn,
             toc_btn = toc_btn,
+            width_pick = width_pick(),
             theme_pick = theme_pick,
             body_html = body_html,
             newer = newer_link,
@@ -1045,6 +1077,17 @@ fn font_faces_css() -> String {
         ));
     }
     css
+}
+
+fn width_pick() -> &'static str {
+    r#"<div class="width-pick" role="radiogroup" aria-label="Page width">
+    <input type="radio" name="page-width" id="width-s" value="s" checked>
+    <label for="width-s">Narrow</label>
+    <input type="radio" name="page-width" id="width-m" value="m">
+    <label for="width-m">Medium</label>
+    <input type="radio" name="page-width" id="width-l" value="l">
+    <label for="width-l">Wide</label>
+  </div>"#
 }
 
 fn pdf_action(kind: Kind, meta: &Meta) -> String {
@@ -1207,12 +1250,37 @@ mod tests {
     fn prose_column_is_one_measure() {
         let html = login(None, None);
         assert!(html.contains("font-size: 1rem; line-height: 1.65;"));
-        assert!(html.contains("max-width: 40rem;"));
+        assert!(html.contains("--page: 40rem;"));
+        assert!(html.contains("html[data-width=\"m\"] { --page: 60rem; }"));
+        assert!(html.contains("html[data-width=\"l\"] { --page: 100%; }"));
+        assert!(html.contains("max-width: var(--page);"));
         assert!(html.contains("article.doc h2 { font-size: 1.28rem; margin: 1.7em 0 0.45em; }"));
         assert!(html.contains("color: var(--link);"));
         assert!(!html.contains("margin-left: auto; margin-right: auto;"));
         assert!(!html.contains("--measure"));
         assert!(html.contains("article.doc > * { max-width: none; }"));
+    }
+
+    #[test]
+    fn document_page_has_three_widths() {
+        let meta = Meta {
+            project: "inbox".into(),
+            slug: "notes.md".into(),
+            title: "Notes".into(),
+            content_type: "text/markdown".into(),
+            bytes: 12,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        };
+        let html = document(&meta, Kind::Markdown, &Rendered::default(), None, None);
+        assert!(html.contains("role=\"radiogroup\" aria-label=\"Page width\""));
+        assert!(html.contains("id=\"width-s\""));
+        assert!(html.contains("id=\"width-m\""));
+        assert!(html.contains("id=\"width-l\""));
+        assert!(html.contains(">Narrow</label>"));
+        assert!(html.contains(">Medium</label>"));
+        assert!(html.contains(">Wide</label>"));
+        assert!(html.contains("html[data-width=\"l\"] .doc-layout.has-toc"));
     }
 
     #[test]

@@ -1461,6 +1461,9 @@ mod tests {
         assert!(js.contains("wireImageZoom"));
         assert!(js.contains("img-stage"));
         assert!(js.contains("is-zoomed"));
+        assert!(js.contains("gist-width"));
+        assert!(js.contains("data-width"));
+        assert!(js.contains("wirePageWidth"));
     }
 
     #[tokio::test]
