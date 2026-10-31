@@ -1485,6 +1485,9 @@ mod tests {
         assert!(js.contains("data-theme"));
         assert!(js.contains("gist-font"));
         assert!(js.contains("data-font"));
+        assert!(js.contains("time[datetime]"));
+        assert!(js.contains("localTimeLabel"));
+        assert!(js.contains("yesterday"));
     }
 
     #[tokio::test]

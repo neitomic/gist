@@ -28,7 +28,40 @@
     }
   }
 
+  function two(n) {
+    return (n < 10 ? "0" : "") + n;
+  }
+
+  function sameDay(a, b) {
+    return (
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate()
+    );
+  }
+
+  // The server label is UTC. Rewrite it from the viewer's local clock.
+  function localTimeLabel(iso) {
+    var t = new Date(iso);
+    if (isNaN(t.getTime())) return null;
+    var now = new Date();
+    var hm = two(t.getHours()) + ":" + two(t.getMinutes());
+    if (sameDay(t, now)) return "today " + hm;
+    var yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (sameDay(t, yesterday)) return "yesterday " + hm;
+    var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return t.getDate() + " " + months[t.getMonth()] + " " + t.getFullYear();
+  }
+
+  function showLocalTimes() {
+    Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (el) {
+      var label = localTimeLabel(el.getAttribute("datetime"));
+      if (label) el.textContent = label;
+    });
+  }
+
   onReady(function () {
+    showLocalTimes();
     var sel = document.getElementById("color-scheme");
     if (sel) {
       sel.value = theme;

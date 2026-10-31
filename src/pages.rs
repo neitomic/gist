@@ -763,7 +763,7 @@ fn doc_row(d: &Meta) -> String {
         title = esc(&d.title),
         slug = esc(&d.slug),
         size = esc(&human_size(d.bytes)),
-        when = esc(&human_time(&d.updated)),
+        when = time_el(&d.updated),
     )
 }
 
@@ -942,7 +942,7 @@ pub fn document(
             slug = esc(&meta.slug),
             href = esc(&meta.href()),
             size = esc(&human_size(meta.bytes)),
-            when = esc(&human_time(&meta.updated)),
+            when = time_el(&meta.updated),
             pdf_btn = pdf_btn,
             toc_btn = toc_btn,
             width_pick = width_pick(),
@@ -1284,6 +1284,14 @@ mod tests {
     }
 
     #[test]
+    fn display_time_is_an_absolute_instant() {
+        let t = time::macros::datetime!(2026-01-15 8:05 UTC);
+        let html = time_el(&t);
+        assert!(html.contains(r#"<time datetime="2026-01-15T08:05:00Z">"#));
+        assert!(html.contains(">15 Jan 2026</time>"));
+    }
+
+    #[test]
     fn markdown_document_has_pdf_export() {
         let meta = Meta {
             project: "inbox".into(),
@@ -1329,6 +1337,17 @@ fn human_size(n: u64) -> String {
     } else {
         format!("{n} B")
     }
+}
+
+/// UTC label for when script is off. The instant in `datetime` is what the
+/// browser turns into the viewer's local clock.
+fn time_el(t: &OffsetDateTime) -> String {
+    let iso = t.format(&Rfc3339).unwrap_or_default();
+    format!(
+        r#"<time datetime="{iso}">{label}</time>"#,
+        iso = esc(&iso),
+        label = esc(&human_time(t)),
+    )
 }
 
 fn human_time(t: &OffsetDateTime) -> String {
